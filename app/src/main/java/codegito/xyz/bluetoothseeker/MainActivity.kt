@@ -1,47 +1,59 @@
 package codegito.xyz.bluetoothseeker
 
+import android.Manifest
+import android.os.Build
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
-import androidx.compose.runtime.Composable
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.tooling.preview.Preview
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.viewmodel.compose.viewModel
+import codegito.xyz.bluetoothseeker.ui.BluetoothSeekerRoot
+import codegito.xyz.bluetoothseeker.ui.Permissions
+import codegito.xyz.bluetoothseeker.ui.RootViewModel
+import codegito.xyz.bluetoothseeker.ui.RootViewModelFactory
 import codegito.xyz.bluetoothseeker.ui.theme.BluetoothSeekerTheme
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
+        val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+
+        val container = (application as BluetoothSeekerApp).container
+        val viewModelFactory = RootViewModelFactory(
+            repository = container.bluetoothRepository,
+            settingsRepository = container.settingsRepository,
+            requiredPermissionsGranted = Permissions.hasCorePermissions(this),
+        )
+
+        splashScreen.setKeepOnScreenCondition {
+            !viewModelFactory.initialized
+        }
+
         setContent {
-            BluetoothSeekerTheme {
-                Scaffold(modifier = Modifier.fillMaxSize()) { innerPadding ->
-                    Greeting(
-                        name = "Android",
-                        modifier = Modifier.padding(innerPadding)
-                    )
-                }
+            val viewModel: RootViewModel = viewModel(factory = viewModelFactory)
+            val themePreference by viewModel.themePreference.collectAsState()
+            BluetoothSeekerTheme(themePreference = themePreference) {
+                BluetoothSeekerRoot(
+                    viewModel = viewModel,
+                    onPermissionsResult = {
+                        viewModel.onPermissionsUpdated(Permissions.hasCorePermissions(this))
+                    },
+                    permissionRequest = Permissions.requiredPermissionsForPrompt(),
+                )
             }
         }
     }
 }
 
-@Composable
-fun Greeting(name: String, modifier: Modifier = Modifier) {
-    Text(
-        text = "Hello $name!",
-        modifier = modifier
-    )
-}
-
-@Preview(showBackground = true)
-@Composable
-fun GreetingPreview() {
-    BluetoothSeekerTheme {
-        Greeting("Android")
-    }
+object BluetoothPermissions {
+    val bluetoothConnectPermission: String?
+        get() = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            Manifest.permission.BLUETOOTH_CONNECT
+        } else {
+            null
+        }
 }
