@@ -132,10 +132,13 @@ class BluetoothRepository(
         if (settings.logMode == LogMode.DISCONNECT_ONLY && eventType == DeviceEventType.CONNECTED) return
         if (device.bondState != BluetoothDevice.BOND_BONDED) return
         if (device.address in settings.ignoredAddresses) return
-        if (!locationRepository.hasLocationPermission()) return
 
-        val location = locationRepository.getBestAvailableLocation() ?: return
-        val placeLabel = placeLabelRepository.getPlaceLabel(location.latitude, location.longitude)
+        val location = if (locationRepository.hasLocationPermission()) {
+            locationRepository.getBestAvailableLocation()
+        } else null
+        val placeLabel = if (location != null) {
+            placeLabelRepository.getPlaceLabel(location.latitude, location.longitude)
+        } else null
         val existing = dao.getDevice(device.address)
         val timestamp = System.currentTimeMillis()
         dao.upsertDevice(
@@ -148,10 +151,10 @@ class BluetoothRepository(
                 isConnected = eventType == DeviceEventType.CONNECTED,
                 isIgnored = existing?.isIgnored ?: false,
                 lastSeenAt = timestamp,
-                lastLatitude = location.latitude,
-                lastLongitude = location.longitude,
-                lastPlaceLabel = placeLabel,
-                lastLocationQuality = location.quality,
+                lastLatitude = location?.latitude ?: existing?.lastLatitude,
+                lastLongitude = location?.longitude ?: existing?.lastLongitude,
+                lastPlaceLabel = placeLabel ?: existing?.lastPlaceLabel,
+                lastLocationQuality = location?.quality ?: existing?.lastLocationQuality,
             ),
         )
         dao.insertEvent(
@@ -160,10 +163,10 @@ class BluetoothRepository(
                 deviceName = device.displayName(),
                 eventType = eventType,
                 happenedAt = timestamp,
-                latitude = location.latitude,
-                longitude = location.longitude,
+                latitude = location?.latitude,
+                longitude = location?.longitude,
                 placeLabel = placeLabel,
-                locationQuality = location.quality,
+                locationQuality = location?.quality,
             ),
         )
         pruneOldLogs(settings.retentionDays)
