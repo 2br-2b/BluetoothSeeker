@@ -553,18 +553,38 @@ private fun HomeScreen(
                         }
                     }
                     if (developerMode) {
+                        val context = androidx.compose.ui.platform.LocalContext.current
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(horizontal = 16.dp)
                                 .padding(bottom = 8.dp),
                         ) {
-                            Text(
-                                "Developer logs",
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(vertical = 4.dp),
-                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                            ) {
+                                Text(
+                                    "Developer logs",
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.padding(vertical = 4.dp),
+                                )
+                                Button(
+                                    onClick = {
+                                        val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                            type = "text/plain"
+                                            putExtra(Intent.EXTRA_TEXT, devLogs.joinToString("\n"))
+                                        }
+                                        context.startActivity(Intent.createChooser(shareIntent, "Share logs"))
+                                    },
+                                ) {
+                                    Icon(Icons.Filled.Share, contentDescription = "Share logs", modifier = Modifier.size(16.dp))
+                                    Spacer(Modifier.width(4.dp))
+                                    Text("Share logs", style = MaterialTheme.typography.labelSmall)
+                                }
+                            }
                             Box(
                                 modifier = Modifier
                                     .fillMaxWidth()
