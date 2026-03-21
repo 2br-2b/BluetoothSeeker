@@ -13,9 +13,11 @@ import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -58,6 +60,12 @@ import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material3.AssistChip
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
@@ -65,6 +73,7 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -323,19 +332,34 @@ private fun HomeScreen(
         }
     }
 
-    var sheetSnap by remember { mutableStateOf(SheetSnap.FULL) }
     val density = LocalDensity.current
-    // Heights in dp for each state
-    val handleHeightDp = 28.dp     // drag pill row
-    val partialHeightDp = 220.dp   // enough for ~1 device card + search + handle
-    // "full" uses fillMaxHeight so no fixed dp needed
-    val sheetHeightDp = when (sheetSnap) {
-        SheetSnap.FULL -> null          // fills available space
-        SheetSnap.PARTIAL -> partialHeightDp
-        SheetSnap.HANDLE -> handleHeightDp
+    val scope = rememberCoroutineScope()
+
+    // Anchor heights in px — computed once layout is known
+    val handlePx  = with(density) { 28.dp.toPx() }
+    // partial: handle + search field + sort chips + 1 device card + spacing
+    val partialPx = with(density) { (28 + 56 + 48 + 88 + 12 + 12 + 16 + 16).dp.toPx() }
+
+    // Animatable sheet height in px; starts at 0 until we know the available height
+    val sheetHeightPx = remember { Animatable(0f) }
+    var fullPx by remember { mutableStateOf(0f) }
+
+    fun anchorFor(snap: SheetSnap) = when (snap) {
+        SheetSnap.FULL    -> fullPx
+        SheetSnap.PARTIAL -> partialPx
+        SheetSnap.HANDLE  -> handlePx
     }
 
-    val scope = rememberCoroutineScope()
+    suspend fun snapTo(snap: SheetSnap) =
+        sheetHeightPx.animateTo(anchorFor(snap), spring(stiffness = Spring.StiffnessMediumLow))
+
+    var sheetSnap by remember { mutableStateOf(SheetSnap.FULL) }
+
+    // Nearest snap given current px height
+    fun nearestSnap(px: Float): SheetSnap {
+        val snaps = SheetSnap.entries
+        return snaps.minByOrNull { kotlin.math.abs(anchorFor(it) - px) } ?: SheetSnap.FULL
+    }
     var centerOnUserLocation by remember { mutableStateOf(0) }
 
     // Connection event banner
@@ -374,7 +398,17 @@ private fun HomeScreen(
             )
         },
     ) { padding ->
-        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .onSizeChanged { size ->
+                    if (fullPx == 0f) {
+                        fullPx = size.height.toFloat()
+                        scope.launch { sheetHeightPx.snapTo(fullPx) }
+                    }
+                },
+        ) {
             DeviceMap(
                 devices = filteredDevices,
                 userLocation = userLocation,
@@ -386,54 +420,78 @@ private fun HomeScreen(
             // Connection/disconnection banner overlaid at top
             ConnectionBanner(event = bannerEvent)
 
-            // 3-state bottom sheet overlay
-            var dragDelta by remember { mutableStateOf(0f) }
+            // Corner radius: 0 when fully expanded, 16dp otherwise
+            val cornerDp = if (fullPx > 0f && sheetHeightPx.value >= fullPx - 1f) 0.dp else 16.dp
+
+            val listState = rememberLazyListState()
+
+            // NestedScrollConnection: intercept downward scroll when list is at top
+            val nestedScrollConnection = remember {
+                object : NestedScrollConnection {
+                    override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                        // Only consume downward drag when sheet is fully expanded
+                        if (available.y > 0f && sheetHeightPx.value >= fullPx - 1f) {
+                            val atTop = !listState.canScrollBackward
+                            if (atTop) {
+                                scope.launch {
+                                    val newH = (sheetHeightPx.value + available.y).coerceIn(handlePx, fullPx)
+                                    sheetHeightPx.snapTo(newH)
+                                }
+                                return available
+                            }
+                        }
+                        return Offset.Zero
+                    }
+
+                    override suspend fun onPreFling(available: Velocity): Velocity {
+                        if (available.y > 0f && sheetHeightPx.value < fullPx - 1f) {
+                            val snap = nearestSnap(sheetHeightPx.value)
+                            sheetSnap = snap
+                            snapTo(snap)
+                            return available
+                        }
+                        return Velocity.Zero
+                    }
+                }
+            }
+
             Column(
                 modifier = Modifier
                     .align(Alignment.BottomCenter)
                     .fillMaxWidth()
-                    .then(
-                        if (sheetHeightDp != null) Modifier.height(sheetHeightDp)
-                        else Modifier.fillMaxHeight()
-                    )
-                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                    .height(with(density) { sheetHeightPx.value.toDp() })
+                    .clip(RoundedCornerShape(topStart = cornerDp, topEnd = cornerDp))
                     .background(MaterialTheme.colorScheme.surface)
-                    .pointerInput(sheetSnap) {
+                    .pointerInput(Unit) {
                         detectVerticalDragGestures(
-                            onDragStart = { dragDelta = 0f },
-                            onVerticalDrag = { _, delta -> dragDelta += delta },
-                            onDragEnd = {
-                                val threshold = with(density) { 40.dp.toPx() }
-                                if (dragDelta < -threshold) {
-                                    // dragged up → go to next higher state
-                                    sheetSnap = when (sheetSnap) {
-                                        SheetSnap.HANDLE -> SheetSnap.PARTIAL
-                                        SheetSnap.PARTIAL -> SheetSnap.FULL
-                                        SheetSnap.FULL -> SheetSnap.FULL
-                                    }
-                                } else if (dragDelta > threshold) {
-                                    // dragged down → go to next lower state
-                                    sheetSnap = when (sheetSnap) {
-                                        SheetSnap.FULL -> SheetSnap.PARTIAL
-                                        SheetSnap.PARTIAL -> SheetSnap.HANDLE
-                                        SheetSnap.HANDLE -> SheetSnap.HANDLE
-                                    }
+                            onDragStart = { },
+                            onVerticalDrag = { _, delta ->
+                                // delta > 0 = finger moving down = sheet shrinks
+                                scope.launch {
+                                    val newH = (sheetHeightPx.value - delta).coerceIn(handlePx, fullPx)
+                                    sheetHeightPx.snapTo(newH)
                                 }
-                                dragDelta = 0f
+                            },
+                            onDragEnd = {
+                                val snap = nearestSnap(sheetHeightPx.value)
+                                sheetSnap = snap
+                                scope.launch { snapTo(snap) }
                             },
                         )
                     },
             ) {
-                // Drag handle — tapping cycles through states
+                // Drag handle pill — tapping cycles through states
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .clickable {
-                            sheetSnap = when (sheetSnap) {
-                                SheetSnap.FULL -> SheetSnap.PARTIAL
+                            val next = when (sheetSnap) {
+                                SheetSnap.FULL    -> SheetSnap.PARTIAL
                                 SheetSnap.PARTIAL -> SheetSnap.HANDLE
-                                SheetSnap.HANDLE -> SheetSnap.FULL
+                                SheetSnap.HANDLE  -> SheetSnap.FULL
                             }
+                            sheetSnap = next
+                            scope.launch { snapTo(next) }
                         }
                         .padding(vertical = 10.dp),
                     horizontalArrangement = Arrangement.Center,
@@ -447,7 +505,7 @@ private fun HomeScreen(
                     )
                 }
 
-                if (sheetSnap != SheetSnap.HANDLE) {
+                if (sheetHeightPx.value > handlePx + with(density) { 8.dp.toPx() }) {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -467,7 +525,11 @@ private fun HomeScreen(
                         if (filteredDevices.isEmpty()) {
                             Text("No paired devices match this view yet.")
                         } else {
-                            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                            LazyColumn(
+                                state = listState,
+                                modifier = Modifier.nestedScroll(nestedScrollConnection),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
                                 items(filteredDevices, key = { it.address }) { device ->
                                     DeviceRow(device = device, onClick = { onOpenDevice(device.address) })
                                 }
