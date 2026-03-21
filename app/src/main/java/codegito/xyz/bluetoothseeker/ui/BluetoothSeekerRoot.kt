@@ -56,25 +56,24 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material3.AssistChip
-import androidx.compose.material3.BottomSheetScaffold
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBarDefaults
-import androidx.compose.material3.rememberBottomSheetScaffoldState
-import androidx.compose.material3.rememberStandardBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -321,13 +320,21 @@ private fun HomeScreen(
         }
     }
 
-    val sheetState = rememberStandardBottomSheetState(
-        initialValue = SheetValue.Expanded,
-        skipHiddenState = true,
-    )
-    val scaffoldState = rememberBottomSheetScaffoldState(bottomSheetState = sheetState)
-    val scope = rememberCoroutineScope()
+    // 3-state sheet: FULL, PARTIAL (~1 entry), HANDLE
+    enum class SheetSnap { FULL, PARTIAL, HANDLE }
+    var sheetSnap by remember { mutableStateOf(SheetSnap.FULL) }
+    val density = LocalDensity.current
+    // Heights in dp for each state
+    val handleHeightDp = 28.dp     // drag pill row
+    val partialHeightDp = 220.dp   // enough for ~1 device card + search + handle
+    // "full" uses fillMaxHeight so no fixed dp needed
+    val sheetHeightDp = when (sheetSnap) {
+        SheetSnap.FULL -> null          // fills available space
+        SheetSnap.PARTIAL -> partialHeightDp
+        SheetSnap.HANDLE -> handleHeightDp
+    }
 
+    val scope = rememberCoroutineScope()
     var centerOnUserLocation by remember { mutableStateOf(0) }
 
     // Connection event banner
@@ -340,95 +347,135 @@ private fun HomeScreen(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
-        BottomSheetScaffold(
-            scaffoldState = scaffoldState,
-            sheetPeekHeight = 56.dp,
-            topBar = {
-                CenterAlignedTopAppBar(
-                    colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        titleContentColor = MaterialTheme.colorScheme.onSurface,
-                        actionIconContentColor = MaterialTheme.colorScheme.onSurface,
-                    ),
-                    title = { Text("Bluetooth Seeker") },
-                    actions = {
-                        IconButton(onClick = {
-                            appViewModel.refresh()
-                            centerOnUserLocation++
-                        }) {
-                            Icon(Icons.Default.LocationOn, contentDescription = "Center on my location")
-                        }
-                        IconButton(onClick = onOpenMapTheme) {
-                            Icon(Icons.Default.Palette, contentDescription = "Themes")
-                        }
-                        IconButton(onClick = onOpenSettings) {
-                            Icon(Icons.Default.Settings, contentDescription = "Settings")
-                        }
-                    },
-                )
-            },
-            sheetContent = {
-                Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).padding(bottom = 16.dp)) {
-                    // Drag handle row with hide/show toggle
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.Center,
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Box(
-                            modifier = Modifier
-                                .width(40.dp)
-                                .height(4.dp)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
-                                .clickable {
-                                    scope.launch {
-                                        if (sheetState.currentValue == SheetValue.Expanded) {
-                                            sheetState.partialExpand()
-                                        } else {
-                                            sheetState.expand()
-                                        }
+    Scaffold(
+        topBar = {
+            CenterAlignedTopAppBar(
+                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.surface,
+                    titleContentColor = MaterialTheme.colorScheme.onSurface,
+                    actionIconContentColor = MaterialTheme.colorScheme.onSurface,
+                ),
+                title = { Text("Bluetooth Seeker") },
+                actions = {
+                    IconButton(onClick = {
+                        appViewModel.refresh()
+                        centerOnUserLocation++
+                    }) {
+                        Icon(Icons.Default.LocationOn, contentDescription = "Center on my location")
+                    }
+                    IconButton(onClick = onOpenMapTheme) {
+                        Icon(Icons.Default.Palette, contentDescription = "Themes")
+                    }
+                    IconButton(onClick = onOpenSettings) {
+                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+                    }
+                },
+            )
+        },
+    ) { padding ->
+        Box(modifier = Modifier.fillMaxSize().padding(padding)) {
+            DeviceMap(
+                devices = filteredDevices,
+                userLocation = userLocation,
+                centerOnUserTrigger = centerOnUserLocation,
+                mapStyle = activeMapStyle,
+                onOpenDevice = onOpenDevice,
+            )
+
+            // Connection/disconnection banner overlaid at top
+            ConnectionBanner(event = bannerEvent)
+
+            // 3-state bottom sheet overlay
+            var dragDelta by remember { mutableStateOf(0f) }
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .fillMaxWidth()
+                    .then(
+                        if (sheetHeightDp != null) Modifier.height(sheetHeightDp)
+                        else Modifier.fillMaxHeight()
+                    )
+                    .clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp))
+                    .background(MaterialTheme.colorScheme.surface)
+                    .pointerInput(sheetSnap) {
+                        detectVerticalDragGestures(
+                            onDragStart = { dragDelta = 0f },
+                            onVerticalDrag = { _, delta -> dragDelta += delta },
+                            onDragEnd = {
+                                val threshold = with(density) { 40.dp.toPx() }
+                                if (dragDelta < -threshold) {
+                                    // dragged up → go to next higher state
+                                    sheetSnap = when (sheetSnap) {
+                                        SheetSnap.HANDLE -> SheetSnap.PARTIAL
+                                        SheetSnap.PARTIAL -> SheetSnap.FULL
+                                        SheetSnap.FULL -> SheetSnap.FULL
+                                    }
+                                } else if (dragDelta > threshold) {
+                                    // dragged down → go to next lower state
+                                    sheetSnap = when (sheetSnap) {
+                                        SheetSnap.FULL -> SheetSnap.PARTIAL
+                                        SheetSnap.PARTIAL -> SheetSnap.HANDLE
+                                        SheetSnap.HANDLE -> SheetSnap.HANDLE
                                     }
                                 }
+                                dragDelta = 0f
+                            },
                         )
-                    }
-                    Spacer(Modifier.height(12.dp))
-                    OutlinedTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                        label = { Text("Search paired devices") },
+                    },
+            ) {
+                // Drag handle — tapping cycles through states
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            sheetSnap = when (sheetSnap) {
+                                SheetSnap.FULL -> SheetSnap.PARTIAL
+                                SheetSnap.PARTIAL -> SheetSnap.HANDLE
+                                SheetSnap.HANDLE -> SheetSnap.FULL
+                            }
+                        }
+                        .padding(vertical = 10.dp),
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .width(40.dp)
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
                     )
-                    Spacer(Modifier.height(12.dp))
-                    SortModeRow(settings = settings, onSortSelected = appViewModel::updateSortMode)
-                    Spacer(Modifier.height(12.dp))
-                    if (filteredDevices.isEmpty()) {
-                        Text("No paired devices match this view yet.")
-                    } else {
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                            items(filteredDevices, key = { it.address }) { device ->
-                                DeviceRow(device = device, onClick = { onOpenDevice(device.address) })
+                }
+
+                if (sheetSnap != SheetSnap.HANDLE) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp)
+                            .padding(bottom = 16.dp),
+                    ) {
+                        OutlinedTextField(
+                            value = query,
+                            onValueChange = { query = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                            label = { Text("Search paired devices") },
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        SortModeRow(settings = settings, onSortSelected = appViewModel::updateSortMode)
+                        Spacer(Modifier.height(12.dp))
+                        if (filteredDevices.isEmpty()) {
+                            Text("No paired devices match this view yet.")
+                        } else {
+                            LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                                items(filteredDevices, key = { it.address }) { device ->
+                                    DeviceRow(device = device, onClick = { onOpenDevice(device.address) })
+                                }
                             }
                         }
                     }
                 }
-            },
-        ) { padding ->
-            Box(modifier = Modifier.fillMaxSize().padding(padding)) {
-                DeviceMap(
-                    devices = filteredDevices,
-                    userLocation = userLocation,
-                    centerOnUserTrigger = centerOnUserLocation,
-                    mapStyle = activeMapStyle,
-                    onOpenDevice = onOpenDevice,
-                )
             }
         }
-
-        // Connection/disconnection banner overlaid at top
-        ConnectionBanner(event = bannerEvent)
     }
 }
 
