@@ -8,6 +8,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Build
+import android.util.Log
 import androidx.core.content.ContextCompat
 import codegito.xyz.bluetoothseeker.data.local.AppDatabase
 import codegito.xyz.bluetoothseeker.data.local.DeviceEventLogEntity
@@ -111,9 +112,18 @@ class BluetoothRepository(
     suspend fun getCurrentUserLocation() = locationRepository.getLastKnownLocation()
 
     suspend fun refreshPairedDevices() {
-        val adapter = BluetoothAdapter.getDefaultAdapter() ?: return
-        if (!hasBluetoothConnectPermission()) return
-        adapter.bondedDevices.orEmpty().forEach { device ->
+        val adapter = BluetoothAdapter.getDefaultAdapter()
+        if (adapter == null) {
+            Log.w(TAG, "refreshPairedDevices: BluetoothAdapter is null")
+            return
+        }
+        if (!hasBluetoothConnectPermission()) {
+            Log.w(TAG, "refreshPairedDevices: missing BLUETOOTH_CONNECT permission")
+            return
+        }
+        val bonded = adapter.bondedDevices.orEmpty()
+        Log.d(TAG, "refreshPairedDevices: found ${bonded.size} bonded device(s)")
+        bonded.forEach { device ->
             val existing = dao.getDevice(device.address)
             dao.upsertDevice(
                 TrackedBluetoothDeviceEntity(
@@ -133,18 +143,39 @@ class BluetoothRepository(
     }
 
     suspend fun handleBluetoothIntent(intent: Intent) {
-        val device = intent.parcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE) ?: return
+        Log.d(TAG, "handleBluetoothIntent: action=${intent.action}")
+        val device = intent.parcelableExtra<BluetoothDevice>(BluetoothDevice.EXTRA_DEVICE)
+        if (device == null) {
+            Log.w(TAG, "handleBluetoothIntent: no EXTRA_DEVICE in intent")
+            return
+        }
         val eventType = when (intent.action) {
             BluetoothDevice.ACTION_ACL_CONNECTED -> DeviceEventType.CONNECTED
             BluetoothDevice.ACTION_ACL_DISCONNECTED -> DeviceEventType.DISCONNECTED
-            else -> return
+            else -> {
+                Log.w(TAG, "handleBluetoothIntent: unhandled action=${intent.action}")
+                return
+            }
         }
+        Log.d(TAG, "handleBluetoothIntent: device=${device.address} event=$eventType bondState=${device.bondState}")
 
-        if (!hasBluetoothConnectPermission()) return
+        if (!hasBluetoothConnectPermission()) {
+            Log.w(TAG, "handleBluetoothIntent: missing BLUETOOTH_CONNECT permission")
+            return
+        }
         val settings = settingsRepository.settings.first()
-        if (settings.logMode == LogMode.DISCONNECT_ONLY && eventType == DeviceEventType.CONNECTED) return
-        if (device.bondState != BluetoothDevice.BOND_BONDED) return
-        if (device.address in settings.ignoredAddresses) return
+        if (settings.logMode == LogMode.DISCONNECT_ONLY && eventType == DeviceEventType.CONNECTED) {
+            Log.d(TAG, "handleBluetoothIntent: skipping CONNECTED event due to DISCONNECT_ONLY log mode")
+            return
+        }
+        if (device.bondState != BluetoothDevice.BOND_BONDED) {
+            Log.w(TAG, "handleBluetoothIntent: device is not bonded (bondState=${device.bondState}), skipping")
+            return
+        }
+        if (device.address in settings.ignoredAddresses) {
+            Log.d(TAG, "handleBluetoothIntent: device ${device.address} is ignored, skipping")
+            return
+        }
 
         val location = if (locationRepository.hasLocationPermission()) {
             locationRepository.getBestAvailableLocation()
@@ -182,6 +213,7 @@ class BluetoothRepository(
                 locationQuality = location?.quality,
             ),
         )
+        Log.d(TAG, "handleBluetoothIntent: saved event for ${device.address} ($eventType)")
         _recentConnectionEvent.tryEmit(ConnectionEvent(device.displayName(), eventType))
         pruneOldLogs(settings.retentionDays)
         if (eventType == DeviceEventType.DISCONNECTED && settings.disconnectNotifications) {
@@ -336,6 +368,7 @@ class BluetoothRepository(
     private fun BluetoothDevice.displayName(): String = name?.takeIf { it.isNotBlank() } ?: address
 
     private companion object {
+        const val TAG = "BT_Repository"
         const val MILLIS_PER_DAY = 86_400_000L
     }
 }

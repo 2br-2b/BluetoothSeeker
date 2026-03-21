@@ -47,6 +47,8 @@ class AppViewModel(
 
     val recentConnectionEvent: SharedFlow<ConnectionEvent> = repository.recentConnectionEvent
 
+    val developerMode = MutableStateFlow(false)
+
     init {
         refresh()
         startLiveLocationUpdates()

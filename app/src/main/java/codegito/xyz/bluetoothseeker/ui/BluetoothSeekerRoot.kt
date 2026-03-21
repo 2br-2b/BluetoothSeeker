@@ -24,6 +24,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -135,6 +136,7 @@ import org.maplibre.android.maps.MapView as MapLibreView
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.annotations.MarkerOptions
 import codegito.xyz.bluetoothseeker.data.model.MapStyle as AppMapStyle
+import codegito.xyz.bluetoothseeker.BuildConfig
 
 private object Routes {
     const val Onboarding = "onboarding"
@@ -315,6 +317,20 @@ private fun HomeScreen(
     val settings by appViewModel.settings.collectAsState()
     val userLocation by appViewModel.currentUserLocation().collectAsState()
     val isDark = isSystemInDarkTheme()
+    val developerMode by appViewModel.developerMode.collectAsState()
+    var versionTapCount by remember { mutableStateOf(0) }
+    var devLogs by remember { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(developerMode) {
+        if (developerMode) {
+            devLogs = try {
+                Runtime.getRuntime()
+                    .exec(arrayOf("logcat", "-d", "-t", "200", "-s", "BT_Receiver:D", "BT_Repository:D"))
+                    .inputStream.bufferedReader().readLines()
+            } catch (e: Exception) {
+                listOf("Failed to read logs: ${e.message}")
+            }
+        }
+    }
     val activeMapStyle = if (settings.mapStyleFollowsDark && isDark) settings.mapStyleDark else settings.mapStyle
 
     // Request background location if not yet granted (must be separate from core permissions on API 29+)
@@ -353,7 +369,7 @@ private fun HomeScreen(
     suspend fun snapTo(snap: SheetSnap) =
         sheetHeightPx.animateTo(anchorFor(snap), spring(stiffness = Spring.StiffnessMediumLow))
 
-    var sheetSnap by remember { mutableStateOf(SheetSnap.FULL) }
+    var sheetSnap by remember { mutableStateOf(SheetSnap.PARTIAL) }
 
     // Nearest snap given current px height
     fun nearestSnap(px: Float): SheetSnap {
@@ -405,7 +421,7 @@ private fun HomeScreen(
                 .onSizeChanged { size ->
                     if (fullPx == 0f) {
                         fullPx = size.height.toFloat()
-                        scope.launch { sheetHeightPx.snapTo(fullPx) }
+                        scope.launch { sheetHeightPx.snapTo(partialPx) }
                     }
                 },
         ) {
@@ -509,8 +525,8 @@ private fun HomeScreen(
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(horizontal = 16.dp)
-                            .padding(bottom = 16.dp),
+                            .weight(1f)
+                            .padding(horizontal = 16.dp),
                     ) {
                         OutlinedTextField(
                             value = query,
@@ -536,6 +552,52 @@ private fun HomeScreen(
                             }
                         }
                     }
+                    if (developerMode) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 16.dp)
+                                .padding(bottom = 8.dp),
+                        ) {
+                            Text(
+                                "Developer logs",
+                                style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.padding(vertical = 4.dp),
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(180.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .padding(8.dp),
+                            ) {
+                                val scrollState = rememberScrollState(Int.MAX_VALUE)
+                                Text(
+                                    text = if (devLogs.isEmpty()) "No BT logs captured yet." else devLogs.joinToString("\n"),
+                                    style = MaterialTheme.typography.bodySmall.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.verticalScroll(scrollState),
+                                )
+                            }
+                        }
+                    }
+                    // Version row
+                    Text(
+                        text = "v${BuildConfig.VERSION_NAME}" + if (developerMode) " (dev)" else "",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = if (developerMode) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.5f),
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .clickable {
+                                versionTapCount++
+                                if (!developerMode && versionTapCount >= 7) {
+                                    appViewModel.developerMode.value = true
+                                }
+                            }
+                            .padding(vertical = 8.dp, horizontal = 16.dp),
+                    )
                 }
             }
         }
