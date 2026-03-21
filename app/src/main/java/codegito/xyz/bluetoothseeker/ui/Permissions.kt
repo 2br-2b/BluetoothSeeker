@@ -7,6 +7,8 @@ import android.os.Build
 import androidx.core.content.ContextCompat
 
 object Permissions {
+    data class PermissionInfo(val permission: String, val label: String)
+
     fun requiredPermissionsForPrompt(): Array<String> = buildList {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             add(Manifest.permission.BLUETOOTH_CONNECT)
@@ -34,4 +36,20 @@ object Permissions {
             .all { permission ->
                 ContextCompat.checkSelfPermission(context, permission) == PackageManager.PERMISSION_GRANTED
             }
+
+    /** Returns human-readable labels for all missing required permissions (excluding notifications). */
+    fun missingPermissionLabels(context: Context): List<String> = buildList {
+        fun missing(perm: String) =
+            ContextCompat.checkSelfPermission(context, perm) != PackageManager.PERMISSION_GRANTED
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && missing(Manifest.permission.BLUETOOTH_CONNECT)) {
+            add("Nearby devices (Bluetooth)")
+        }
+        if (missing(Manifest.permission.ACCESS_FINE_LOCATION) || missing(Manifest.permission.ACCESS_COARSE_LOCATION)) {
+            add("Location")
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && missing(Manifest.permission.ACCESS_BACKGROUND_LOCATION)) {
+            add("Background location (\"Allow all the time\")")
+        }
+    }
 }

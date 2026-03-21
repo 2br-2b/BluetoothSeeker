@@ -192,6 +192,7 @@ fun BluetoothSeekerRoot(
     NavHost(navController = navController, startDestination = if (rootState.showOnboarding) Routes.Onboarding else Routes.Home) {
         composable(Routes.Onboarding) {
             OnboardingScreen(
+                missingPermissions = Permissions.missingPermissionLabels(context),
                 onContinue = { launcher.launch(permissionRequest) },
                 onOpenApp = {
                     onPermissionsResult()
@@ -243,6 +244,7 @@ fun BluetoothSeekerRoot(
 
 @Composable
 private fun OnboardingScreen(
+    missingPermissions: List<String>,
     onContinue: () -> Unit,
     onOpenApp: () -> Unit,
 ) {
@@ -257,6 +259,26 @@ private fun OnboardingScreen(
             Text("Bluetooth Seeker", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
             Text("Track paired Bluetooth device connections with places and timestamps on an OpenStreetMap view.")
+            if (missingPermissions.isNotEmpty()) {
+                Spacer(Modifier.height(20.dp))
+                Text("The following permissions are required:", style = MaterialTheme.typography.labelLarge)
+                Spacer(Modifier.height(8.dp))
+                missingPermissions.forEach { label ->
+                    Row(
+                        modifier = Modifier.padding(vertical = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(6.dp)
+                                .clip(RoundedCornerShape(3.dp))
+                                .background(MaterialTheme.colorScheme.primary)
+                        )
+                        Text(label, style = MaterialTheme.typography.bodyMedium)
+                    }
+                }
+            }
             Spacer(Modifier.height(24.dp))
             Button(onClick = onContinue, modifier = Modifier.fillMaxWidth()) {
                 Text("Grant permissions")
@@ -277,11 +299,21 @@ private fun HomeScreen(
     onOpenDevice: (String) -> Unit,
     onOpenMapTheme: () -> Unit,
 ) {
+    val context = LocalContext.current
     val devices by appViewModel.devices.collectAsState()
     val settings by appViewModel.settings.collectAsState()
     val userLocation by appViewModel.currentUserLocation().collectAsState()
     val isDark = isSystemInDarkTheme()
     val activeMapStyle = if (settings.mapStyleFollowsDark && isDark) settings.mapStyleDark else settings.mapStyle
+
+    // Request background location if not yet granted (must be separate from core permissions on API 29+)
+    val bgLocationPerm = Permissions.backgroundLocationPermission()
+    val bgLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(Unit) {
+        if (bgLocationPerm != null && !Permissions.hasBackgroundLocation(context)) {
+            bgLauncher.launch(bgLocationPerm)
+        }
+    }
     var query by rememberSaveable { mutableStateOf("") }
     val filteredDevices = remember(devices, query) {
         devices.filter {
@@ -290,7 +322,7 @@ private fun HomeScreen(
     }
 
     val sheetState = rememberStandardBottomSheetState(
-        initialValue = SheetValue.PartiallyExpanded,
+        initialValue = SheetValue.Expanded,
         skipHiddenState = true,
     )
     val scaffoldState = rememberBottomSheetScaffoldState(bottomSheetState = sheetState)
@@ -311,7 +343,7 @@ private fun HomeScreen(
     Box(modifier = Modifier.fillMaxSize()) {
         BottomSheetScaffold(
             scaffoldState = scaffoldState,
-            sheetPeekHeight = 20.dp,
+            sheetPeekHeight = 56.dp,
             topBar = {
                 CenterAlignedTopAppBar(
                     colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
@@ -565,7 +597,12 @@ private fun DeviceMap(
         if (centerOnUserTrigger == 0) return@LaunchedEffect
         val loc = userLocation ?: return@LaunchedEffect
         mapRef.value?.animateCamera(
-            CameraUpdateFactory.newLatLng(LatLng(loc.latitude, loc.longitude)),
+            CameraUpdateFactory.newCameraPosition(
+                CameraPosition.Builder()
+                    .target(LatLng(loc.latitude, loc.longitude))
+                    .zoom(15.0)
+                    .build()
+            ),
             800,
         )
     }

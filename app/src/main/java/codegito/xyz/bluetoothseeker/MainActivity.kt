@@ -17,6 +17,8 @@ import codegito.xyz.bluetoothseeker.ui.RootViewModelFactory
 import codegito.xyz.bluetoothseeker.ui.theme.BluetoothSeekerTheme
 
 class MainActivity : ComponentActivity() {
+    private var rootViewModel: RootViewModel? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         val splashScreen = installSplashScreen()
         super.onCreate(savedInstanceState)
@@ -35,6 +37,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val viewModel: RootViewModel = viewModel(factory = viewModelFactory)
+            rootViewModel = viewModel
             val themePreference by viewModel.themePreference.collectAsState()
             BluetoothSeekerTheme(themePreference = themePreference) {
                 BluetoothSeekerRoot(
@@ -46,6 +49,11 @@ class MainActivity : ComponentActivity() {
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        rootViewModel?.onPermissionsUpdated(Permissions.hasCorePermissions(this))
     }
 }
 
