@@ -469,7 +469,7 @@ private fun DeviceMap(
     LaunchedEffect(centerOnUserTrigger, userLocation) {
         val mapView = mapViewRef.value ?: return@LaunchedEffect
         if (userLocation != null) {
-            mapView.controller.animateTo(GeoPoint(userLocation.latitude, userLocation.longitude))
+            mapView.controller.animateTo(GeoPoint(userLocation.latitude, userLocation.longitude), mapView.zoomLevelDouble, 800L)
         }
     }
 
