@@ -482,7 +482,6 @@ private fun DeviceRow(device: DeviceSummary, onClick: () -> Unit) {
     }
 }
 
-@Composable
 private fun addMarkersToMap(
     map: MapLibreMap,
     devices: List<DeviceSummary>,
