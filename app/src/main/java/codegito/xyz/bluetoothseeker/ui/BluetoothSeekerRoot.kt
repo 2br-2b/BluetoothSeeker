@@ -28,6 +28,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -290,6 +291,8 @@ private fun OnboardingScreen(
     }
 }
 
+private enum class SheetSnap { FULL, PARTIAL, HANDLE }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun HomeScreen(
@@ -320,8 +323,6 @@ private fun HomeScreen(
         }
     }
 
-    // 3-state sheet: FULL, PARTIAL (~1 entry), HANDLE
-    enum class SheetSnap { FULL, PARTIAL, HANDLE }
     var sheetSnap by remember { mutableStateOf(SheetSnap.FULL) }
     val density = LocalDensity.current
     // Heights in dp for each state
