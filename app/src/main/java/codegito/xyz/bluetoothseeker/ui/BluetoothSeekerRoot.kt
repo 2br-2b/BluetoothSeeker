@@ -76,6 +76,7 @@ import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.rememberBottomSheetScaffoldState
 import androidx.compose.material3.rememberStandardBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -84,6 +85,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.lifecycle.DefaultLifecycleObserver
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -488,11 +492,30 @@ private fun DeviceMap(
     onOpenDevice: (String) -> Unit,
 ) {
     val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val mapRef = remember { mutableStateOf<MapLibreMap?>(null) }
     val mapViewRef = remember { mutableStateOf<MapLibreView?>(null) }
 
-    // Initialize MapLibre (no-op if already done)
     MapLibre.getInstance(context)
+
+    // Proper lifecycle management: forward Activity lifecycle events to MapView
+    // and destroy it when the composable leaves composition.
+    DisposableEffect(lifecycleOwner) {
+        val observer = object : DefaultLifecycleObserver {
+            override fun onStart(owner: LifecycleOwner) { mapViewRef.value?.onStart() }
+            override fun onResume(owner: LifecycleOwner) { mapViewRef.value?.onResume() }
+            override fun onPause(owner: LifecycleOwner) { mapViewRef.value?.onPause() }
+            override fun onStop(owner: LifecycleOwner) { mapViewRef.value?.onStop() }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            mapRef.value = null
+            mapViewRef.value?.onStop()
+            mapViewRef.value?.onDestroy()
+            mapViewRef.value = null
+        }
+    }
 
     // Animate to user location when button tapped
     LaunchedEffect(centerOnUserTrigger) {
@@ -504,7 +527,7 @@ private fun DeviceMap(
         )
     }
 
-    // Update markers and user dot whenever devices or location change
+    // Update markers whenever devices or location change
     LaunchedEffect(devices, userLocation) {
         val map = mapRef.value ?: return@LaunchedEffect
         map.clear()
@@ -537,40 +560,39 @@ private fun DeviceMap(
 
     AndroidView(
         modifier = Modifier.fillMaxSize(),
-        factory = {
-            MapLibreView(context).also { mapView ->
+        factory = { ctx ->
+            MapLibreView(ctx).also { mapView ->
                 mapViewRef.value = mapView
                 mapView.onCreate(null)
+                mapView.onStart()
+                mapView.onResume()
                 mapView.getMapAsync { map ->
                     mapRef.value = map
                     map.setStyle(mapStyle.url)
                     map.uiSettings.isRotateGesturesEnabled = true
                     map.uiSettings.isDoubleTapGesturesEnabled = true
-
-                    // Initial camera position
                     val startPos = userLocation
                         ?: devices.firstOrNull { it.lastLatitude != null }
                             ?.let { LocationSnapshot(it.lastLatitude!!, it.lastLongitude!!, codegito.xyz.bluetoothseeker.data.model.LocationQuality.LAST_KNOWN) }
                     startPos?.let {
-                        map.moveCamera(CameraUpdateFactory.newCameraPosition(
-                            CameraPosition.Builder()
-                                .target(LatLng(it.latitude, it.longitude))
-                                .zoom(13.0)
-                                .build()
-                        ))
+                        map.moveCamera(
+                            CameraUpdateFactory.newCameraPosition(
+                                CameraPosition.Builder()
+                                    .target(LatLng(it.latitude, it.longitude))
+                                    .zoom(13.0)
+                                    .build()
+                            )
+                        )
                     }
                 }
             }
         },
         update = { mapView ->
-            // Re-apply style if it changed
             mapRef.value?.let { map ->
-                val currentStyle = map.style?.uri
-                if (currentStyle != mapStyle.url) {
+                if (map.style?.uri != mapStyle.url) {
                     map.setStyle(mapStyle.url)
                 }
             }
-            mapView.onResume()
         },
     )
 }
