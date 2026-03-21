@@ -24,6 +24,9 @@ interface BluetoothDao {
     @Query("UPDATE tracked_devices SET isIgnored = :ignored WHERE address = :address")
     suspend fun setIgnored(address: String, ignored: Boolean)
 
+    @Query("UPDATE tracked_devices SET customIcon = :icon WHERE address = :address")
+    suspend fun setCustomIcon(address: String, icon: String?)
+
     @Query("SELECT * FROM device_event_logs WHERE deviceAddress = :address ORDER BY happenedAt DESC")
     fun observeEventsForDevice(address: String): Flow<List<DeviceEventLogEntity>>
 

@@ -29,6 +29,9 @@ import java.io.InputStream
 import java.io.OutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.withContext
@@ -46,6 +49,12 @@ data class DeviceSummary(
     val lastLocationQuality: LocationQuality?,
     val distanceMeters: Float?,
     val isIgnored: Boolean,
+    val customIcon: String? = null,
+)
+
+data class ConnectionEvent(
+    val deviceName: String,
+    val eventType: DeviceEventType,
 )
 
 class BluetoothRepository(
@@ -58,6 +67,9 @@ class BluetoothRepository(
 ) {
     private val dao = database.bluetoothDao()
     private val json = Json { prettyPrint = true; ignoreUnknownKeys = true }
+
+    private val _recentConnectionEvent = MutableSharedFlow<ConnectionEvent>(extraBufferCapacity = 8)
+    val recentConnectionEvent: SharedFlow<ConnectionEvent> = _recentConnectionEvent.asSharedFlow()
 
     val settings: Flow<UserSettings> = settingsRepository.settings
 
@@ -86,6 +98,7 @@ class BluetoothRepository(
                         entity.lastLongitude,
                     ),
                     isIgnored = entity.isIgnored,
+                    customIcon = entity.customIcon,
                 )
             }
             .sortedWith(deviceComparator(settings))
@@ -169,10 +182,15 @@ class BluetoothRepository(
                 locationQuality = location?.quality,
             ),
         )
+        _recentConnectionEvent.tryEmit(ConnectionEvent(device.displayName(), eventType))
         pruneOldLogs(settings.retentionDays)
         if (eventType == DeviceEventType.DISCONNECTED && settings.disconnectNotifications) {
             notificationManager.showDisconnectNotification(device.displayName())
         }
+    }
+
+    suspend fun setCustomIcon(address: String, icon: String?) {
+        dao.setCustomIcon(address, icon)
     }
 
     suspend fun setIgnored(address: String, ignored: Boolean) {

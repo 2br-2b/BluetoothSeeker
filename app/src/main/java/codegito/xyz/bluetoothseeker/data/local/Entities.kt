@@ -19,6 +19,7 @@ data class TrackedBluetoothDeviceEntity(
     val lastLongitude: Double?,
     val lastPlaceLabel: String?,
     val lastLocationQuality: LocationQuality?,
+    val customIcon: String? = null,
 )
 
 @Entity(

@@ -13,13 +13,17 @@ import codegito.xyz.bluetoothseeker.data.model.LogMode
 import codegito.xyz.bluetoothseeker.data.model.SortMode
 import codegito.xyz.bluetoothseeker.data.model.ThemePreference
 import codegito.xyz.bluetoothseeker.data.repo.BluetoothRepository
+import codegito.xyz.bluetoothseeker.data.repo.ConnectionEvent
 import codegito.xyz.bluetoothseeker.data.repo.DeviceSummary
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 enum class HistoryFilter {
@@ -40,8 +44,20 @@ class AppViewModel(
         .map { if (it.amoledMode) ThemePreference.AMOLED else ThemePreference.SYSTEM }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ThemePreference.SYSTEM)
 
+    val recentConnectionEvent: SharedFlow<ConnectionEvent> = repository.recentConnectionEvent
+
     init {
         refresh()
+        startLiveLocationUpdates()
+    }
+
+    private fun startLiveLocationUpdates() {
+        viewModelScope.launch {
+            while (isActive) {
+                userLocation.value = repository.getCurrentUserLocation()
+                delay(10_000L)
+            }
+        }
     }
 
     fun device(address: String): StateFlow<TrackedBluetoothDeviceEntity?> =
@@ -73,6 +89,12 @@ class AppViewModel(
     fun toggleIgnored(address: String, ignored: Boolean) {
         viewModelScope.launch {
             repository.setIgnored(address, ignored)
+        }
+    }
+
+    fun setCustomIcon(address: String, icon: String?) {
+        viewModelScope.launch {
+            repository.setCustomIcon(address, icon)
         }
     }
 
