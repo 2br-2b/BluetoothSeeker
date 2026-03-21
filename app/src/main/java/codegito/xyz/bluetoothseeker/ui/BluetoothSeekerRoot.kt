@@ -52,7 +52,6 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Speaker
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.BottomSheetScaffold
 import androidx.compose.material3.Button
@@ -111,13 +110,15 @@ import codegito.xyz.bluetoothseeker.data.repo.DeviceSummary
 import java.util.Locale
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import org.osmdroid.util.GeoPoint
-import org.osmdroid.views.MapView
-import org.osmdroid.views.overlay.Marker
-import org.osmdroid.views.overlay.Overlay
-import android.graphics.Canvas as AndroidCanvas
-import android.graphics.Paint as AndroidPaint
 import androidx.compose.ui.viewinterop.AndroidView
+import org.maplibre.android.MapLibre
+import org.maplibre.android.camera.CameraPosition
+import org.maplibre.android.camera.CameraUpdateFactory
+import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.maps.MapView as MapLibreView
+import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.annotations.MarkerOptions
+import codegito.xyz.bluetoothseeker.data.model.MapStyle as AppMapStyle
 
 private object Routes {
     const val Onboarding = "onboarding"
@@ -355,6 +356,7 @@ private fun HomeScreen(
                     devices = filteredDevices,
                     userLocation = userLocation,
                     centerOnUserTrigger = centerOnUserLocation,
+                    mapStyle = settings.mapStyle,
                     onOpenDevice = onOpenDevice,
                 )
             }
@@ -462,94 +464,102 @@ private fun DeviceMap(
     devices: List<DeviceSummary>,
     userLocation: LocationSnapshot?,
     centerOnUserTrigger: Int,
+    mapStyle: AppMapStyle,
     onOpenDevice: (String) -> Unit,
 ) {
-    val mapViewRef = remember { mutableStateOf<MapView?>(null) }
+    val context = LocalContext.current
+    val mapRef = remember { mutableStateOf<MapLibreMap?>(null) }
+    val mapViewRef = remember { mutableStateOf<MapLibreView?>(null) }
 
-    LaunchedEffect(centerOnUserTrigger, userLocation) {
-        val mapView = mapViewRef.value ?: return@LaunchedEffect
-        if (userLocation != null) {
-            mapView.controller.animateTo(GeoPoint(userLocation.latitude, userLocation.longitude), mapView.zoomLevelDouble, 800L)
+    // Initialize MapLibre (no-op if already done)
+    MapLibre.getInstance(context)
+
+    // Animate to user location when button tapped
+    LaunchedEffect(centerOnUserTrigger) {
+        if (centerOnUserTrigger == 0) return@LaunchedEffect
+        val loc = userLocation ?: return@LaunchedEffect
+        mapRef.value?.animateCamera(
+            CameraUpdateFactory.newLatLng(LatLng(loc.latitude, loc.longitude)),
+            800,
+        )
+    }
+
+    // Update markers and user dot whenever devices or location change
+    LaunchedEffect(devices, userLocation) {
+        val map = mapRef.value ?: return@LaunchedEffect
+        map.clear()
+        userLocation?.let { loc ->
+            map.addMarker(
+                MarkerOptions()
+                    .position(LatLng(loc.latitude, loc.longitude))
+                    .title("You are here")
+            )
+        }
+        clusterDevices(devices).forEach { cluster ->
+            val first = cluster.first()
+            val lat = first.lastLatitude ?: return@forEach
+            val lon = first.lastLongitude ?: return@forEach
+            map.addMarker(
+                MarkerOptions()
+                    .position(LatLng(lat, lon))
+                    .title(if (cluster.size == 1) first.name else "${cluster.size} devices nearby")
+                    .snippet(first.lastPlaceLabel ?: formatCoordinates(first.lastLatitude, first.lastLongitude))
+            )
+        }
+        map.setOnMarkerClickListener { marker ->
+            val device = devices.find { d ->
+                d.lastLatitude == marker.position.latitude && d.lastLongitude == marker.position.longitude
+            }
+            if (device != null) onOpenDevice(device.address)
+            true
         }
     }
 
     AndroidView(
         modifier = Modifier.fillMaxSize(),
-        factory = { context ->
-            MapView(context).apply {
-                setMultiTouchControls(true)
-                controller.setZoom(13.0)
-                mapViewRef.value = this
+        factory = {
+            MapLibreView(context).also { mapView ->
+                mapViewRef.value = mapView
+                mapView.onCreate(null)
+                mapView.getMapAsync { map ->
+                    mapRef.value = map
+                    map.setStyle(mapStyle.url)
+                    map.uiSettings.isRotateGesturesEnabled = true
+                    map.uiSettings.isDoubleTapGesturesEnabled = true
+
+                    // Initial camera position
+                    val startPos = userLocation
+                        ?: devices.firstOrNull { it.lastLatitude != null }
+                            ?.let { LocationSnapshot(it.lastLatitude!!, it.lastLongitude!!, codegito.xyz.bluetoothseeker.data.model.LocationQuality.LAST_KNOWN) }
+                    startPos?.let {
+                        map.moveCamera(CameraUpdateFactory.newCameraPosition(
+                            CameraPosition.Builder()
+                                .target(LatLng(it.latitude, it.longitude))
+                                .zoom(13.0)
+                                .build()
+                        ))
+                    }
+                }
             }
         },
         update = { mapView ->
-            mapViewRef.value = mapView
-            mapView.overlays.clear()
-            val points = devices.mapNotNull { device ->
-                val lat = device.lastLatitude ?: return@mapNotNull null
-                val lon = device.lastLongitude ?: return@mapNotNull null
-                device to GeoPoint(lat, lon)
-            }
-            if (centerOnUserTrigger == 0) {
-                when {
-                    userLocation != null -> mapView.controller.setCenter(GeoPoint(userLocation.latitude, userLocation.longitude))
-                    points.isNotEmpty() -> mapView.controller.setCenter(points.first().second)
+            // Re-apply style if it changed
+            mapRef.value?.let { map ->
+                val currentStyle = map.style?.uri
+                if (currentStyle != mapStyle.url) {
+                    map.setStyle(mapStyle.url)
                 }
             }
-            // "I'm here" circle overlay (like Maps apps)
-            if (userLocation != null) {
-                mapView.overlays.add(UserLocationOverlay(GeoPoint(userLocation.latitude, userLocation.longitude)))
-            }
-            clusterDevices(points).forEach { cluster ->
-                val first = cluster.first()
-                val marker = Marker(mapView).apply {
-                    position = first.second
-                    title = if (cluster.size == 1) first.first.name else "${cluster.size} devices nearby"
-                    snippet = first.first.lastPlaceLabel ?: formatCoordinates(first.first.lastLatitude, first.first.lastLongitude)
-                    setOnMarkerClickListener { _, _ ->
-                        onOpenDevice(first.first.address)
-                        true
-                    }
-                }
-                mapView.overlays.add(marker)
-            }
-            mapView.invalidate()
+            mapView.onResume()
         },
     )
 }
 
-/** Draws the familiar blue dot + accuracy halo used in mapping apps. */
-private class UserLocationOverlay(private val location: GeoPoint) : Overlay() {
-    private val haloPaint = AndroidPaint().apply {
-        isAntiAlias = true
-        color = android.graphics.Color.argb(50, 33, 150, 243)
-        style = AndroidPaint.Style.FILL
-    }
-    private val dotPaint = AndroidPaint().apply {
-        isAntiAlias = true
-        color = android.graphics.Color.rgb(33, 150, 243)
-        style = AndroidPaint.Style.FILL
-    }
-    private val strokePaint = AndroidPaint().apply {
-        isAntiAlias = true
-        color = android.graphics.Color.WHITE
-        style = AndroidPaint.Style.STROKE
-        strokeWidth = 4f
-    }
-
-    override fun draw(canvas: AndroidCanvas, mapView: MapView, shadow: Boolean) {
-        if (shadow) return
-        val point = mapView.projection.toPixels(location, null)
-        canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), 32f, haloPaint)
-        canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), 14f, dotPaint)
-        canvas.drawCircle(point.x.toFloat(), point.y.toFloat(), 14f, strokePaint)
-    }
-}
-
-private fun clusterDevices(points: List<Pair<DeviceSummary, GeoPoint>>): List<List<Pair<DeviceSummary, GeoPoint>>> =
-    points.groupBy { (_, point) ->
-        "${(point.latitude * 500).toInt()}:${(point.longitude * 500).toInt()}"
-    }.values.toList()
+private fun clusterDevices(devices: List<DeviceSummary>): List<List<DeviceSummary>> =
+    devices.filter { it.lastLatitude != null && it.lastLongitude != null }
+        .groupBy { d ->
+            "${((d.lastLatitude ?: 0.0) * 500).toInt()}:${((d.lastLongitude ?: 0.0) * 500).toInt()}"
+        }.values.toList()
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -828,6 +838,28 @@ private fun SettingsScreen(
             }
             item {
                 SettingToggleRow("Disconnect notifications", settings.disconnectNotifications, appViewModel::updateDisconnectNotifications)
+            }
+            item {
+                Text("Map style", style = MaterialTheme.typography.titleMedium)
+                Spacer(Modifier.height(8.dp))
+                Column {
+                    AppMapStyle.entries.forEach { style ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { appViewModel.updateMapStyle(style) }
+                                .padding(vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            RadioButton(
+                                selected = settings.mapStyle == style,
+                                onClick = { appViewModel.updateMapStyle(style) },
+                            )
+                            Text(style.label, style = MaterialTheme.typography.bodyLarge)
+                        }
+                    }
+                }
             }
             item {
                 Row(

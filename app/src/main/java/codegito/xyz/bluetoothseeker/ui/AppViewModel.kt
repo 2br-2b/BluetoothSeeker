@@ -10,6 +10,7 @@ import codegito.xyz.bluetoothseeker.data.local.UserSettings
 import codegito.xyz.bluetoothseeker.data.location.LocationSnapshot
 import codegito.xyz.bluetoothseeker.data.model.DeviceEventType
 import codegito.xyz.bluetoothseeker.data.model.LogMode
+import codegito.xyz.bluetoothseeker.data.model.MapStyle
 import codegito.xyz.bluetoothseeker.data.model.SortMode
 import codegito.xyz.bluetoothseeker.data.model.ThemePreference
 import codegito.xyz.bluetoothseeker.data.repo.BluetoothRepository
@@ -114,6 +115,12 @@ class AppViewModel(
     fun updateLogMode(logMode: LogMode) {
         viewModelScope.launch {
             repository.updateSettings { it.copy(logMode = logMode) }
+        }
+    }
+
+    fun updateMapStyle(style: MapStyle) {
+        viewModelScope.launch {
+            repository.updateSettings { it.copy(mapStyle = style) }
         }
     }
 

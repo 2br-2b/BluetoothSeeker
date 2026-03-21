@@ -24,6 +24,13 @@ enum class SortMode {
     CLOSEST,
 }
 
+enum class MapStyle(val label: String, val url: String) {
+    LIBERTY("Liberty", "https://tiles.openfreemap.org/styles/liberty"),
+    BRIGHT("Bright", "https://tiles.openfreemap.org/styles/bright"),
+    POSITRON("Positron", "https://tiles.openfreemap.org/styles/positron"),
+    DARK("Dark Matter", "https://tiles.openfreemap.org/styles/dark"),
+}
+
 enum class LocationQuality {
     PRECISE,
     APPROXIMATE,
@@ -45,6 +52,7 @@ data class SettingsSnapshot(
     val disconnectNotifications: Boolean,
     val sortMode: String,
     val ignoredAddresses: List<String>,
+    val mapStyle: String? = null,
 )
 
 @Serializable

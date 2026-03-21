@@ -228,6 +228,7 @@ class BluetoothRepository(
                             disconnectNotifications = settings.disconnectNotifications,
                             sortMode = settings.sortMode.name,
                             ignoredAddresses = settings.ignoredAddresses.toList(),
+                            mapStyle = settings.mapStyle.name,
                         ),
                         devices = devices.map {
                             ExportDevice(

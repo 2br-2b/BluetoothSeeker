@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import codegito.xyz.bluetoothseeker.data.model.LogMode
+import codegito.xyz.bluetoothseeker.data.model.MapStyle
 import codegito.xyz.bluetoothseeker.data.model.SettingsSnapshot
 import codegito.xyz.bluetoothseeker.data.model.SortMode
 import kotlinx.coroutines.flow.Flow
@@ -22,6 +23,7 @@ data class UserSettings(
     val disconnectNotifications: Boolean = false,
     val sortMode: SortMode = SortMode.MOST_RECENT,
     val ignoredAddresses: Set<String> = emptySet(),
+    val mapStyle: MapStyle = MapStyle.LIBERTY,
 )
 
 class SettingsRepository(private val context: Context) {
@@ -32,6 +34,7 @@ class SettingsRepository(private val context: Context) {
         val disconnectNotifications = booleanPreferencesKey("disconnect_notifications")
         val sortMode = stringPreferencesKey("sort_mode")
         val ignoredAddresses = stringPreferencesKey("ignored_addresses")
+        val mapStyle = stringPreferencesKey("map_style")
     }
 
     val settings: Flow<UserSettings> = context.dataStore.data.map(::readSettings)
@@ -53,6 +56,7 @@ class SettingsRepository(private val context: Context) {
                     disconnectNotifications = snapshot.disconnectNotifications,
                     sortMode = SortMode.valueOf(snapshot.sortMode),
                     ignoredAddresses = snapshot.ignoredAddresses.toSet(),
+                    mapStyle = snapshot.mapStyle?.let { runCatching { MapStyle.valueOf(it) }.getOrNull() } ?: MapStyle.LIBERTY,
                 ),
             )
         }
@@ -71,6 +75,7 @@ class SettingsRepository(private val context: Context) {
                 ?.filter { it.isNotBlank() }
                 ?.toSet()
                 ?: emptySet(),
+            mapStyle = prefs[Keys.mapStyle]?.let { runCatching { MapStyle.valueOf(it) }.getOrNull() } ?: MapStyle.LIBERTY,
         )
 
     private fun writeSettings(
@@ -83,5 +88,6 @@ class SettingsRepository(private val context: Context) {
         prefs[Keys.disconnectNotifications] = settings.disconnectNotifications
         prefs[Keys.sortMode] = settings.sortMode.name
         prefs[Keys.ignoredAddresses] = settings.ignoredAddresses.sorted().joinToString("|")
+        prefs[Keys.mapStyle] = settings.mapStyle.name
     }
 }
