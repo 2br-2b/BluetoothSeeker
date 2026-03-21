@@ -121,13 +121,13 @@ fun BluetoothSeekerRoot(
         onPermissionsResult()
     }
 
+    if (rootState.isLoading) return
+
     LaunchedEffect(rootState.showOnboarding) {
         navController.navigate(if (rootState.showOnboarding) Routes.Onboarding else Routes.Home) {
             popUpTo(0)
         }
     }
-
-    if (rootState.isLoading) return
 
     NavHost(navController = navController, startDestination = if (rootState.showOnboarding) Routes.Onboarding else Routes.Home) {
         composable(Routes.Onboarding) {
