@@ -164,10 +164,21 @@ fun BluetoothSeekerRoot(
     val navController = rememberNavController()
     val container = (context.applicationContext as BluetoothSeekerApp).container
     val appViewModel: AppViewModel = viewModel(factory = AppViewModelFactory(container.bluetoothRepository))
+    val bgLocationPerm = Permissions.backgroundLocationPermission()
+    val bgLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission(),
+    ) {
+        onPermissionsResult()
+    }
     val launcher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions(),
     ) {
-        onPermissionsResult()
+        // After core permissions, request background location separately (required on API 29+)
+        if (bgLocationPerm != null && !Permissions.hasBackgroundLocation(context)) {
+            bgLauncher.launch(bgLocationPerm)
+        } else {
+            onPermissionsResult()
+        }
     }
 
     if (rootState.isLoading) return
@@ -341,11 +352,10 @@ private fun HomeScreen(
                                 .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
                                 .clickable {
                                     scope.launch {
-                                        if (sheetState.currentValue == SheetValue.Expanded ||
-                                            sheetState.currentValue == SheetValue.PartiallyExpanded) {
-                                            sheetState.hide()
-                                        } else {
+                                        if (sheetState.currentValue == SheetValue.Expanded) {
                                             sheetState.partialExpand()
+                                        } else {
+                                            sheetState.expand()
                                         }
                                     }
                                 }
