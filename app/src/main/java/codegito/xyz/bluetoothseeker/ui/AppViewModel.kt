@@ -124,6 +124,18 @@ class AppViewModel(
         }
     }
 
+    fun updateMapStyleDark(style: MapStyle) {
+        viewModelScope.launch {
+            repository.updateSettings { it.copy(mapStyleDark = style) }
+        }
+    }
+
+    fun updateMapStyleFollowsDark(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.updateSettings { it.copy(mapStyleFollowsDark = enabled) }
+        }
+    }
+
     fun updateAmoled(enabled: Boolean) {
         viewModelScope.launch {
             repository.updateSettings { it.copy(amoledMode = enabled) }

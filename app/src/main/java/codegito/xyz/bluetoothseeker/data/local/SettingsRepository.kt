@@ -24,6 +24,8 @@ data class UserSettings(
     val sortMode: SortMode = SortMode.MOST_RECENT,
     val ignoredAddresses: Set<String> = emptySet(),
     val mapStyle: MapStyle = MapStyle.LIBERTY,
+    val mapStyleDark: MapStyle = MapStyle.DARK,
+    val mapStyleFollowsDark: Boolean = false,
 )
 
 class SettingsRepository(private val context: Context) {
@@ -35,6 +37,8 @@ class SettingsRepository(private val context: Context) {
         val sortMode = stringPreferencesKey("sort_mode")
         val ignoredAddresses = stringPreferencesKey("ignored_addresses")
         val mapStyle = stringPreferencesKey("map_style")
+        val mapStyleDark = stringPreferencesKey("map_style_dark")
+        val mapStyleFollowsDark = booleanPreferencesKey("map_style_follows_dark")
     }
 
     val settings: Flow<UserSettings> = context.dataStore.data.map(::readSettings)
@@ -76,6 +80,8 @@ class SettingsRepository(private val context: Context) {
                 ?.toSet()
                 ?: emptySet(),
             mapStyle = prefs[Keys.mapStyle]?.let { runCatching { MapStyle.valueOf(it) }.getOrNull() } ?: MapStyle.LIBERTY,
+            mapStyleDark = prefs[Keys.mapStyleDark]?.let { runCatching { MapStyle.valueOf(it) }.getOrNull() } ?: MapStyle.DARK,
+            mapStyleFollowsDark = prefs[Keys.mapStyleFollowsDark] ?: false,
         )
 
     private fun writeSettings(
@@ -89,5 +95,7 @@ class SettingsRepository(private val context: Context) {
         prefs[Keys.sortMode] = settings.sortMode.name
         prefs[Keys.ignoredAddresses] = settings.ignoredAddresses.sorted().joinToString("|")
         prefs[Keys.mapStyle] = settings.mapStyle.name
+        prefs[Keys.mapStyleDark] = settings.mapStyleDark.name
+        prefs[Keys.mapStyleFollowsDark] = settings.mapStyleFollowsDark
     }
 }

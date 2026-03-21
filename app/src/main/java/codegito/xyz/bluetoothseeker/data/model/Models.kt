@@ -24,11 +24,12 @@ enum class SortMode {
     CLOSEST,
 }
 
-enum class MapStyle(val label: String, val url: String) {
+enum class MapStyle(val label: String, val url: String, val isDark: Boolean = false) {
     LIBERTY("Liberty", "https://tiles.openfreemap.org/styles/liberty"),
     BRIGHT("Bright", "https://tiles.openfreemap.org/styles/bright"),
     POSITRON("Positron", "https://tiles.openfreemap.org/styles/positron"),
-    DARK("Dark Matter", "https://tiles.openfreemap.org/styles/dark"),
+    DARK("Dark Matter", "https://tiles.openfreemap.org/styles/dark", isDark = true),
+    FIORD("Fiord Color", "https://tiles.openfreemap.org/styles/fiord", isDark = true),
 }
 
 enum class LocationQuality {

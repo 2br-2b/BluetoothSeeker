@@ -1,6 +1,7 @@
 package codegito.xyz.bluetoothseeker.ui.theme
 
 import android.os.Build
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.dynamicDarkColorScheme
@@ -47,13 +48,14 @@ fun BluetoothSeekerTheme(
     content: @Composable () -> Unit
 ) {
     val context = LocalContext.current
+    val darkTheme = isSystemInDarkTheme()
     val colorScheme = when (themePreference) {
         ThemePreference.AMOLED -> AmoledColorScheme
         ThemePreference.SYSTEM -> {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                dynamicLightColorScheme(context)
+                if (darkTheme) dynamicDarkColorScheme(context) else dynamicLightColorScheme(context)
             } else {
-                FallbackLightColorScheme
+                if (darkTheme) FallbackDarkColorScheme else FallbackLightColorScheme
             }
         }
     }

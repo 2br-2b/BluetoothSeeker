@@ -42,11 +42,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
+import androidx.compose.foundation.border
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothDisabled
 import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
@@ -125,6 +128,7 @@ private object Routes {
     const val Home = "home"
     const val Settings = "settings"
     const val IgnoredDevices = "ignored_devices"
+    const val MapTheme = "map_theme"
     const val Device = "device/{address}"
     fun device(address: String) = "device/$address"
 }
@@ -187,6 +191,7 @@ fun BluetoothSeekerRoot(
                 appViewModel = appViewModel,
                 onOpenSettings = { navController.navigate(Routes.Settings) },
                 onOpenDevice = { navController.navigate(Routes.device(it)) },
+                onOpenMapTheme = { navController.navigate(Routes.MapTheme) },
             )
         }
         composable(Routes.Settings) {
@@ -194,6 +199,12 @@ fun BluetoothSeekerRoot(
                 appViewModel = appViewModel,
                 onBack = { navController.popBackStack() },
                 onOpenIgnoredDevices = { navController.navigate(Routes.IgnoredDevices) },
+            )
+        }
+        composable(Routes.MapTheme) {
+            MapThemeScreen(
+                appViewModel = appViewModel,
+                onBack = { navController.popBackStack() },
             )
         }
         composable(Routes.IgnoredDevices) {
@@ -249,10 +260,13 @@ private fun HomeScreen(
     appViewModel: AppViewModel,
     onOpenSettings: () -> Unit,
     onOpenDevice: (String) -> Unit,
+    onOpenMapTheme: () -> Unit,
 ) {
     val devices by appViewModel.devices.collectAsState()
     val settings by appViewModel.settings.collectAsState()
     val userLocation by appViewModel.currentUserLocation().collectAsState()
+    val isDark = isSystemInDarkTheme()
+    val activeMapStyle = if (settings.mapStyleFollowsDark && isDark) settings.mapStyleDark else settings.mapStyle
     var query by rememberSaveable { mutableStateOf("") }
     val filteredDevices = remember(devices, query) {
         devices.filter {
@@ -260,8 +274,11 @@ private fun HomeScreen(
         }
     }
 
-    // Bottom sheet: peek=280 when expanded, 20dp (just handle) when hidden
-    val sheetState = rememberStandardBottomSheetState(initialValue = SheetValue.PartiallyExpanded)
+    // Bottom sheet: skipHiddenState=false so it can fully collapse to nothing
+    val sheetState = rememberStandardBottomSheetState(
+        initialValue = SheetValue.PartiallyExpanded,
+        skipHiddenState = false,
+    )
     val scaffoldState = rememberBottomSheetScaffoldState(bottomSheetState = sheetState)
     val scope = rememberCoroutineScope()
 
@@ -295,6 +312,9 @@ private fun HomeScreen(
                             centerOnUserLocation++
                         }) {
                             Icon(Icons.Default.LocationOn, contentDescription = "Center on my location")
+                        }
+                        IconButton(onClick = onOpenMapTheme) {
+                            Icon(Icons.Default.Palette, contentDescription = "Themes")
                         }
                         IconButton(onClick = onOpenSettings) {
                             Icon(Icons.Default.Settings, contentDescription = "Settings")
@@ -356,7 +376,7 @@ private fun HomeScreen(
                     devices = filteredDevices,
                     userLocation = userLocation,
                     centerOnUserTrigger = centerOnUserLocation,
-                    mapStyle = settings.mapStyle,
+                    mapStyle = activeMapStyle,
                     onOpenDevice = onOpenDevice,
                 )
             }
@@ -840,28 +860,6 @@ private fun SettingsScreen(
                 SettingToggleRow("Disconnect notifications", settings.disconnectNotifications, appViewModel::updateDisconnectNotifications)
             }
             item {
-                Text("Map style", style = MaterialTheme.typography.titleMedium)
-                Spacer(Modifier.height(8.dp))
-                Column {
-                    AppMapStyle.entries.forEach { style ->
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable { appViewModel.updateMapStyle(style) }
-                                .padding(vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            RadioButton(
-                                selected = settings.mapStyle == style,
-                                onClick = { appViewModel.updateMapStyle(style) },
-                            )
-                            Text(style.label, style = MaterialTheme.typography.bodyLarge)
-                        }
-                    }
-                }
-            }
-            item {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -937,6 +935,121 @@ private fun IgnoredDevicesScreen(
                         Column(modifier = Modifier.weight(1f)) {
                             Text(device.name, style = MaterialTheme.typography.bodyLarge)
                             Text(device.address, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun MapThemeScreen(
+    appViewModel: AppViewModel,
+    onBack: () -> Unit,
+) {
+    val settings by appViewModel.settings.collectAsState()
+    val isDark = isSystemInDarkTheme()
+    val activeMapStyle = if (settings.mapStyleFollowsDark && isDark) settings.mapStyleDark else settings.mapStyle
+    val userLocation by appViewModel.currentUserLocation().collectAsState()
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Full-screen map preview
+        DeviceMap(
+            devices = emptyList(),
+            userLocation = userLocation,
+            centerOnUserTrigger = 0,
+            mapStyle = activeMapStyle,
+            onOpenDevice = {},
+        )
+
+        // Top bar overlay
+        CenterAlignedTopAppBar(
+            modifier = Modifier.align(Alignment.TopCenter),
+            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                titleContentColor = MaterialTheme.colorScheme.onSurface,
+                navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+            ),
+            title = { Text("Map Theme") },
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.Default.Bluetooth, contentDescription = "Back")
+                }
+            },
+        )
+
+        // Bottom overlay: theme cards
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f))
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            // System dark mode switch
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    if (settings.mapStyleFollowsDark && isDark) "System dark mode" else "System light mode",
+                    style = MaterialTheme.typography.bodyLarge,
+                )
+                Switch(
+                    checked = settings.mapStyleFollowsDark,
+                    onCheckedChange = { appViewModel.updateMapStyleFollowsDark(it) },
+                )
+            }
+
+            // Light style picker (always shown as "Light theme")
+            if (!settings.mapStyleFollowsDark || !isDark) {
+                Text("Light theme", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(AppMapStyle.entries.toList()) { style ->
+                        val selected = settings.mapStyle == style
+                        Column(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .border(
+                                    width = if (selected) 2.dp else 0.dp,
+                                    color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    shape = RoundedCornerShape(10.dp),
+                                )
+                                .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
+                                .clickable { appViewModel.updateMapStyle(style) }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(style.label, style = MaterialTheme.typography.bodyMedium, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
+                        }
+                    }
+                }
+            }
+
+            // Dark style picker (shown when follow-dark is on and system is dark)
+            if (settings.mapStyleFollowsDark && isDark) {
+                Text("Dark theme", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(AppMapStyle.entries.toList()) { style ->
+                        val selected = settings.mapStyleDark == style
+                        Column(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .border(
+                                    width = if (selected) 2.dp else 0.dp,
+                                    color = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                    shape = RoundedCornerShape(10.dp),
+                                )
+                                .background(if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant)
+                                .clickable { appViewModel.updateMapStyleDark(style) }
+                                .padding(horizontal = 14.dp, vertical = 10.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                        ) {
+                            Text(style.label, style = MaterialTheme.typography.bodyMedium, fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal)
                         }
                     }
                 }
