@@ -278,10 +278,9 @@ private fun HomeScreen(
         }
     }
 
-    // Bottom sheet: skipHiddenState=false so it can fully collapse to nothing
     val sheetState = rememberStandardBottomSheetState(
         initialValue = SheetValue.PartiallyExpanded,
-        skipHiddenState = false,
+        skipHiddenState = true,
     )
     val scaffoldState = rememberBottomSheetScaffoldState(bottomSheetState = sheetState)
     val scope = rememberCoroutineScope()
@@ -484,6 +483,41 @@ private fun DeviceRow(device: DeviceSummary, onClick: () -> Unit) {
 }
 
 @Composable
+private fun addMarkersToMap(
+    map: MapLibreMap,
+    devices: List<DeviceSummary>,
+    userLocation: LocationSnapshot?,
+    onOpenDevice: (String) -> Unit,
+) {
+    map.clear()
+    userLocation?.let { loc ->
+        map.addMarker(
+            MarkerOptions()
+                .position(LatLng(loc.latitude, loc.longitude))
+                .title("You are here")
+        )
+    }
+    clusterDevices(devices).forEach { cluster ->
+        val first = cluster.first()
+        val lat = first.lastLatitude ?: return@forEach
+        val lon = first.lastLongitude ?: return@forEach
+        map.addMarker(
+            MarkerOptions()
+                .position(LatLng(lat, lon))
+                .title(if (cluster.size == 1) first.name else "${cluster.size} devices nearby")
+                .snippet(first.lastPlaceLabel ?: formatCoordinates(first.lastLatitude, first.lastLongitude))
+        )
+    }
+    map.setOnMarkerClickListener { marker ->
+        val device = devices.find { d ->
+            d.lastLatitude == marker.position.latitude && d.lastLongitude == marker.position.longitude
+        }
+        if (device != null) onOpenDevice(device.address)
+        true
+    }
+}
+
+@Composable
 private fun DeviceMap(
     devices: List<DeviceSummary>,
     userLocation: LocationSnapshot?,
@@ -527,35 +561,11 @@ private fun DeviceMap(
         )
     }
 
-    // Update markers whenever devices or location change
-    LaunchedEffect(devices, userLocation) {
+    // Update markers whenever devices, location, or map readiness changes
+    val mapReady = mapRef.value
+    LaunchedEffect(devices, userLocation, mapReady) {
         val map = mapRef.value ?: return@LaunchedEffect
-        map.clear()
-        userLocation?.let { loc ->
-            map.addMarker(
-                MarkerOptions()
-                    .position(LatLng(loc.latitude, loc.longitude))
-                    .title("You are here")
-            )
-        }
-        clusterDevices(devices).forEach { cluster ->
-            val first = cluster.first()
-            val lat = first.lastLatitude ?: return@forEach
-            val lon = first.lastLongitude ?: return@forEach
-            map.addMarker(
-                MarkerOptions()
-                    .position(LatLng(lat, lon))
-                    .title(if (cluster.size == 1) first.name else "${cluster.size} devices nearby")
-                    .snippet(first.lastPlaceLabel ?: formatCoordinates(first.lastLatitude, first.lastLongitude))
-            )
-        }
-        map.setOnMarkerClickListener { marker ->
-            val device = devices.find { d ->
-                d.lastLatitude == marker.position.latitude && d.lastLongitude == marker.position.longitude
-            }
-            if (device != null) onOpenDevice(device.address)
-            true
-        }
+        addMarkersToMap(map, devices, userLocation, onOpenDevice)
     }
 
     AndroidView(
@@ -587,10 +597,12 @@ private fun DeviceMap(
                 }
             }
         },
-        update = { mapView ->
+        update = { _ ->
             mapRef.value?.let { map ->
                 if (map.style?.uri != mapStyle.url) {
-                    map.setStyle(mapStyle.url)
+                    map.setStyle(mapStyle.url) {
+                        addMarkersToMap(map, devices, userLocation, onOpenDevice)
+                    }
                 }
             }
         },
