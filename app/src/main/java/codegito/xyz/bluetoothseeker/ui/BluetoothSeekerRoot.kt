@@ -55,7 +55,7 @@ import androidx.compose.material.icons.filled.Bluetooth
 import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.BluetoothDisabled
 import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.Car
+import androidx.compose.material.icons.filled.DirectionsCar
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.Earbuds
@@ -195,7 +195,7 @@ private val ALL_ICON_OPTIONS: List<IconOption> by lazy {
         IconOption("Mouse", Icons.Filled.Mouse, "Mouse"),
         IconOption("Gamepad", Icons.Filled.Gamepad, "Gamepad"),
         IconOption("Print", Icons.Filled.Print, "Printer"),
-        IconOption("Car", Icons.Filled.Car, "Car"),
+        IconOption("DirectionsCar", Icons.Filled.DirectionsCar, "Car"),
         IconOption("CameraAlt", Icons.Filled.CameraAlt, "Camera"),
         IconOption("MusicNote", Icons.Filled.MusicNote, "Music"),
         IconOption("Wifi", Icons.Filled.Wifi, "Wifi"),
