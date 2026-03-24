@@ -126,7 +126,13 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.vector.PathParser
+import androidx.compose.ui.graphics.vector.VectorGroup
+import androidx.compose.ui.graphics.vector.VectorNode
+import androidx.compose.ui.graphics.vector.VectorPath
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
@@ -372,24 +378,27 @@ private enum class SheetSnap { FULL, PARTIAL, HANDLE }
 @Composable
 private fun DraggableBottomSheet(
     partialFraction: Float = 0.35f,
+    maxFraction: Float = 1.0f,
     defaultSnap: SheetSnap = SheetSnap.PARTIAL,
+    onSheetHeightChange: (Float) -> Unit = {},
     header: @Composable () -> Unit = {},
     scrollableContent: @Composable (androidx.compose.foundation.lazy.LazyListState) -> Unit,
 ) {
     androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val scope = rememberCoroutineScope()
-        val fullPx = with(density) { maxHeight.toPx() }
-        val handlePx = with(density) { 28.dp.toPx() }
+        val fullPx = with(density) { maxHeight.toPx() } * maxFraction
+        val handlePx = with(density) { 56.dp.toPx() }
         val partialPx = fullPx * partialFraction
-
-        val sheetHeightPx = remember { Animatable(0f) }
 
         fun anchorFor(snap: SheetSnap) = when (snap) {
             SheetSnap.FULL    -> fullPx
             SheetSnap.PARTIAL -> partialPx
             SheetSnap.HANDLE  -> handlePx
         }
+
+        // Initialise at the correct snap position immediately — avoids a one-frame flicker at 0.
+        val sheetHeightPx = remember { Animatable(anchorFor(defaultSnap)) }
 
         suspend fun snapTo(snap: SheetSnap, initialVelocity: Float = 0f) =
             sheetHeightPx.animateTo(
@@ -404,8 +413,9 @@ private fun DraggableBottomSheet(
         var sheetSnap by remember { mutableStateOf(defaultSnap) }
         val listState = rememberLazyListState()
 
-        LaunchedEffect(fullPx) {
-            if (sheetHeightPx.value == 0f) sheetHeightPx.snapTo(anchorFor(defaultSnap))
+        // Notify caller of height changes so sibling composables (e.g. a map) can adjust padding.
+        LaunchedEffect(sheetHeightPx) {
+            snapshotFlow { sheetHeightPx.value }.collect { onSheetHeightChange(it) }
         }
 
         val nestedScrollConnection = remember {
@@ -651,6 +661,7 @@ private fun HomeScreen(
                 centerOnUserTrigger = centerOnUserLocation,
                 mapStyle = activeMapStyle,
                 onOpenDevice = onOpenDevice,
+                bottomPaddingPx = sheetHeightPx.value,
             )
 
             // Connection/disconnection banner overlaid at top
@@ -1019,13 +1030,35 @@ private fun createDeviceMarkerBitmap(
     // Colored fill
     paint.color = fillColor
     canvas.drawCircle(r, r, r * 0.84f, paint)
-    // First letter of device name
+    // Custom icon vector or first letter of device name
     paint.color = android.graphics.Color.WHITE
-    paint.textSize = r * 0.92f
-    paint.textAlign = android.graphics.Paint.Align.CENTER
-    val letter = deviceName.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
-    val textY = r - (paint.descent() + paint.ascent()) / 2f
-    canvas.drawText(letter, r, textY, paint)
+    val iconVec = if (customIconKey != null) ALL_ICON_OPTIONS.find { it.key == customIconKey }?.icon else null
+    if (iconVec != null) {
+        paint.style = android.graphics.Paint.Style.FILL
+        val iconSize = r * 1.1f
+        canvas.save()
+        canvas.translate(r - iconSize / 2f, r - iconSize / 2f)
+        canvas.scale(iconSize / iconVec.viewportWidth, iconSize / iconVec.viewportHeight)
+        fun drawNode(node: VectorNode) {
+            when (node) {
+                is VectorPath -> {
+                    val composePath = androidx.compose.ui.graphics.Path()
+                    PathParser().addPathNodes(node.pathData).toPath(composePath)
+                    canvas.drawPath(composePath.asAndroidPath(), paint)
+                }
+                is VectorGroup -> for (child in node) drawNode(child)
+                else -> {}
+            }
+        }
+        for (child in iconVec.root) drawNode(child)
+        canvas.restore()
+    } else {
+        paint.textSize = r * 0.92f
+        paint.textAlign = android.graphics.Paint.Align.CENTER
+        val letter = deviceName.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+        val textY = r - (paint.descent() + paint.ascent()) / 2f
+        canvas.drawText(letter, r, textY, paint)
+    }
     // Tail triangle pointing down
     val path = android.graphics.Path()
     path.moveTo(r - r * 0.38f, circleSize.toFloat())
@@ -1092,6 +1125,7 @@ private fun DeviceMap(
     mapStyle: AppMapStyle,
     onOpenDevice: (String) -> Unit,
     initialCameraTarget: LocationSnapshot? = null,
+    bottomPaddingPx: Float = 0f,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -1141,6 +1175,11 @@ private fun DeviceMap(
         addMarkersToMap(map, devices, userLocation, context, onOpenDevice)
     }
 
+    // Keep map padding in sync with the bottom sheet so the camera centres on the visible area.
+    LaunchedEffect(bottomPaddingPx) {
+        mapRef.value?.setPadding(0, 0, 0, bottomPaddingPx.toInt())
+    }
+
     AndroidView(
         modifier = Modifier.fillMaxSize(),
         factory = { ctx ->
@@ -1154,6 +1193,7 @@ private fun DeviceMap(
                     map.setStyle(mapStyle.url)
                     map.uiSettings.isRotateGesturesEnabled = true
                     map.uiSettings.isDoubleTapGesturesEnabled = true
+                    map.setPadding(0, 0, 0, bottomPaddingPx.toInt())
                     val startPos = initialCameraTarget
                         ?: userLocation
                         ?: devices.firstOrNull { it.lastLatitude != null }
@@ -1210,6 +1250,7 @@ private fun DeviceDetailsScreen(
     val events by remember(address) { appViewModel.deviceEvents(address, filterFlow) }.collectAsState()
 
     var showIconPicker by remember { mutableStateOf(false) }
+    var sheetHeightForMap by remember { mutableStateOf(0f) }
 
     // Build single-device list for map; hide old location when currently connected
     val deviceForMap = remember(device) {
@@ -1250,6 +1291,7 @@ private fun DeviceDetailsScreen(
             mapStyle = activeMapStyle,
             onOpenDevice = {},
             initialCameraTarget = deviceCameraTarget,
+            bottomPaddingPx = sheetHeightForMap,
         )
 
         // Semi-transparent top bar overlay
@@ -1270,8 +1312,10 @@ private fun DeviceDetailsScreen(
 
         // Draggable bottom sheet: starts taller than the home sheet (60% of screen)
         DraggableBottomSheet(
-            partialFraction = 0.60f,
+            partialFraction = 0.45f,
+            maxFraction = 0.88f,
             defaultSnap = SheetSnap.PARTIAL,
+            onSheetHeightChange = { sheetHeightForMap = it },
             header = {
                 // Status row: icon (tap to change) + status/location text
                 val dev = device
