@@ -61,6 +61,8 @@ import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Speaker
 import androidx.compose.material3.AssistChip
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.ui.input.pointer.util.VelocityTracker
+import androidx.compose.ui.input.pointer.util.addPointerInputChange
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
@@ -366,8 +368,12 @@ private fun HomeScreen(
         SheetSnap.HANDLE  -> handlePx
     }
 
-    suspend fun snapTo(snap: SheetSnap) =
-        sheetHeightPx.animateTo(anchorFor(snap), spring(stiffness = Spring.StiffnessMediumLow))
+    suspend fun snapTo(snap: SheetSnap, initialVelocity: Float = 0f) =
+        sheetHeightPx.animateTo(
+            anchorFor(snap),
+            spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioMediumBouncy),
+            initialVelocity = initialVelocity,
+        )
 
     var sheetSnap by remember { mutableStateOf(SheetSnap.PARTIAL) }
 
@@ -460,10 +466,28 @@ private fun HomeScreen(
                     }
 
                     override suspend fun onPreFling(available: Velocity): Velocity {
-                        if (available.y > 0f && sheetHeightPx.value < fullPx - 1f) {
-                            val snap = nearestSnap(sheetHeightPx.value)
+                        val velocityThreshold = 400f
+                        val currentSnap = nearestSnap(sheetHeightPx.value)
+                        // Downward fling: collapse sheet (only when list is at top)
+                        if (available.y > velocityThreshold && sheetHeightPx.value > handlePx + 1f && !listState.canScrollBackward) {
+                            val snap = when (currentSnap) {
+                                SheetSnap.FULL    -> SheetSnap.PARTIAL
+                                SheetSnap.PARTIAL -> SheetSnap.HANDLE
+                                SheetSnap.HANDLE  -> SheetSnap.HANDLE
+                            }
                             sheetSnap = snap
-                            snapTo(snap)
+                            snapTo(snap, initialVelocity = -available.y)
+                            return available
+                        }
+                        // Upward fling: expand sheet when not fully open
+                        if (available.y < -velocityThreshold && sheetHeightPx.value < fullPx - 1f) {
+                            val snap = when (currentSnap) {
+                                SheetSnap.HANDLE  -> SheetSnap.PARTIAL
+                                SheetSnap.PARTIAL -> SheetSnap.FULL
+                                SheetSnap.FULL    -> SheetSnap.FULL
+                            }
+                            sheetSnap = snap
+                            snapTo(snap, initialVelocity = -available.y)
                             return available
                         }
                         return Velocity.Zero
@@ -479,9 +503,11 @@ private fun HomeScreen(
                     .clip(RoundedCornerShape(topStart = cornerDp, topEnd = cornerDp))
                     .background(MaterialTheme.colorScheme.surface)
                     .pointerInput(Unit) {
+                        val velocityTracker = VelocityTracker()
                         detectVerticalDragGestures(
-                            onDragStart = { },
-                            onVerticalDrag = { _, delta ->
+                            onDragStart = { velocityTracker.resetTracking() },
+                            onVerticalDrag = { change, delta ->
+                                velocityTracker.addPointerInputChange(change)
                                 // delta > 0 = finger moving down = sheet shrinks
                                 scope.launch {
                                     val newH = (sheetHeightPx.value - delta).coerceIn(handlePx, fullPx)
@@ -489,9 +515,26 @@ private fun HomeScreen(
                                 }
                             },
                             onDragEnd = {
-                                val snap = nearestSnap(sheetHeightPx.value)
+                                val velocity = velocityTracker.calculateVelocity()
+                                // velocity.y < 0 → swiping up → expand; velocity.y > 0 → swiping down → collapse
+                                val velocityThreshold = 400f
+                                val currentSnap = nearestSnap(sheetHeightPx.value)
+                                val snap = when {
+                                    velocity.y < -velocityThreshold -> when (currentSnap) {
+                                        SheetSnap.HANDLE  -> SheetSnap.PARTIAL
+                                        SheetSnap.PARTIAL -> SheetSnap.FULL
+                                        SheetSnap.FULL    -> SheetSnap.FULL
+                                    }
+                                    velocity.y > velocityThreshold -> when (currentSnap) {
+                                        SheetSnap.FULL    -> SheetSnap.PARTIAL
+                                        SheetSnap.PARTIAL -> SheetSnap.HANDLE
+                                        SheetSnap.HANDLE  -> SheetSnap.HANDLE
+                                    }
+                                    else -> currentSnap
+                                }
                                 sheetSnap = snap
-                                scope.launch { snapTo(snap) }
+                                // pass height velocity (negated because height is inverse of y)
+                                scope.launch { snapTo(snap, initialVelocity = -velocity.y) }
                             },
                         )
                     },
