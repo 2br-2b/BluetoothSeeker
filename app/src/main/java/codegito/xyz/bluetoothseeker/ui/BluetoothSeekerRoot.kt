@@ -9,6 +9,8 @@ import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -48,18 +50,37 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.border
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Bluetooth
+import androidx.compose.material.icons.filled.BluetoothConnected
 import androidx.compose.material.icons.filled.BluetoothDisabled
+import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Car
+import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.Directions
+import androidx.compose.material.icons.filled.Earbuds
+import androidx.compose.material.icons.filled.Gamepad
 import androidx.compose.material.icons.filled.Headphones
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.Keyboard
+import androidx.compose.material.icons.filled.Laptop
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.Mouse
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Phone
+import androidx.compose.material.icons.filled.Print
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Smartphone
 import androidx.compose.material.icons.filled.Speaker
+import androidx.compose.material.icons.filled.Tablet
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material.icons.filled.Watch
+import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material3.AssistChip
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.ui.input.pointer.util.VelocityTracker
@@ -139,6 +160,7 @@ import org.maplibre.android.maps.MapView as MapLibreView
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.annotations.IconFactory
 import org.maplibre.android.annotations.MarkerOptions
+import codegito.xyz.bluetoothseeker.data.model.LocationQuality
 import codegito.xyz.bluetoothseeker.data.model.MapStyle as AppMapStyle
 import codegito.xyz.bluetoothseeker.BuildConfig
 
@@ -154,18 +176,33 @@ private object Routes {
 
 private data class IconOption(val key: String, val icon: ImageVector, val label: String)
 
-// Enumerate every icon in Icons.Filled via reflection, lazily on first use.
+// Curated list of icons useful for labeling Bluetooth devices.
 private val ALL_ICON_OPTIONS: List<IconOption> by lazy {
-    Icons.Filled::class.java.declaredFields
-        .filter { it.type == ImageVector::class.java }
-        .mapNotNull { field ->
-            runCatching {
-                field.isAccessible = true
-                val icon = field.get(Icons.Filled) as? ImageVector ?: return@mapNotNull null
-                IconOption(key = field.name, icon = icon, label = field.name)
-            }.getOrNull()
-        }
-        .sortedBy { it.label }
+    listOf(
+        IconOption("Bluetooth", Icons.Filled.Bluetooth, "Bluetooth"),
+        IconOption("BluetoothConnected", Icons.Filled.BluetoothConnected, "Connected"),
+        IconOption("Headphones", Icons.Filled.Headphones, "Headphones"),
+        IconOption("Earbuds", Icons.Filled.Earbuds, "Earbuds"),
+        IconOption("Speaker", Icons.Filled.Speaker, "Speaker"),
+        IconOption("Smartphone", Icons.Filled.Smartphone, "Smartphone"),
+        IconOption("Phone", Icons.Filled.Phone, "Phone"),
+        IconOption("Tablet", Icons.Filled.Tablet, "Tablet"),
+        IconOption("Watch", Icons.Filled.Watch, "Watch"),
+        IconOption("Laptop", Icons.Filled.Laptop, "Laptop"),
+        IconOption("Computer", Icons.Filled.Computer, "Computer"),
+        IconOption("Tv", Icons.Filled.Tv, "TV"),
+        IconOption("Keyboard", Icons.Filled.Keyboard, "Keyboard"),
+        IconOption("Mouse", Icons.Filled.Mouse, "Mouse"),
+        IconOption("Gamepad", Icons.Filled.Gamepad, "Gamepad"),
+        IconOption("Print", Icons.Filled.Print, "Printer"),
+        IconOption("Car", Icons.Filled.Car, "Car"),
+        IconOption("CameraAlt", Icons.Filled.CameraAlt, "Camera"),
+        IconOption("MusicNote", Icons.Filled.MusicNote, "Music"),
+        IconOption("Wifi", Icons.Filled.Wifi, "Wifi"),
+        IconOption("Home", Icons.Filled.Home, "Home"),
+        IconOption("Person", Icons.Filled.Person, "Person"),
+        IconOption("Settings", Icons.Filled.Settings, "Settings"),
+    ).sortedBy { it.label }
 }
 
 @Composable
@@ -204,7 +241,10 @@ fun BluetoothSeekerRoot(
         }
     }
 
-    NavHost(navController = navController, startDestination = if (rootState.showOnboarding) Routes.Onboarding else Routes.Home) {
+    NavHost(
+        navController = navController,
+        startDestination = if (rootState.showOnboarding) Routes.Onboarding else Routes.Home,
+    ) {
         composable(Routes.Onboarding) {
             OnboardingScreen(
                 missingPermissions = Permissions.missingPermissionLabels(context),
@@ -217,7 +257,12 @@ fun BluetoothSeekerRoot(
                 },
             )
         }
-        composable(Routes.Home) {
+        composable(
+            route = Routes.Home,
+            // Home stays still; device screen slides up over it
+            exitTransition = { ExitTransition.None },
+            popEnterTransition = { EnterTransition.None },
+        ) {
             HomeScreen(
                 appViewModel = appViewModel,
                 onOpenSettings = { navController.navigate(Routes.Settings) },
@@ -247,6 +292,11 @@ fun BluetoothSeekerRoot(
         composable(
             route = Routes.Device,
             arguments = listOf(navArgument("address") { type = NavType.StringType }),
+            // Slide up from bottom (like a modal on top of Home)
+            enterTransition = { slideInVertically(animationSpec = tween(320)) { it } },
+            exitTransition = { slideOutVertically(animationSpec = tween(280)) { it } },
+            popEnterTransition = { EnterTransition.None },
+            popExitTransition = { slideOutVertically(animationSpec = tween(280)) { it } },
         ) { entry ->
             DeviceDetailsScreen(
                 address = entry.arguments?.getString("address").orEmpty(),
@@ -307,6 +357,168 @@ private fun OnboardingScreen(
 }
 
 private enum class SheetSnap { FULL, PARTIAL, HANDLE }
+
+/**
+ * Reusable draggable bottom sheet with three snap points (HANDLE / PARTIAL / FULL).
+ *
+ * Must be placed inside a Box so it can overlay sibling content (e.g. a map).
+ *
+ * @param partialFraction Fraction of available height for the PARTIAL snap (e.g. 0.35f for home,
+ *   0.60f for device detail).
+ * @param defaultSnap Initial snap position.
+ * @param header Non-scrollable composable shown above the scrollable body.
+ * @param scrollableContent Body content; receives the LazyListState for nested-scroll integration.
+ */
+@Composable
+private fun DraggableBottomSheet(
+    partialFraction: Float = 0.35f,
+    defaultSnap: SheetSnap = SheetSnap.PARTIAL,
+    header: @Composable () -> Unit = {},
+    scrollableContent: @Composable (androidx.compose.foundation.lazy.LazyListState) -> Unit,
+) {
+    androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+        val density = LocalDensity.current
+        val scope = rememberCoroutineScope()
+        val fullPx = with(density) { maxHeight.toPx() }
+        val handlePx = with(density) { 28.dp.toPx() }
+        val partialPx = fullPx * partialFraction
+
+        val sheetHeightPx = remember { Animatable(0f) }
+
+        fun anchorFor(snap: SheetSnap) = when (snap) {
+            SheetSnap.FULL    -> fullPx
+            SheetSnap.PARTIAL -> partialPx
+            SheetSnap.HANDLE  -> handlePx
+        }
+
+        suspend fun snapTo(snap: SheetSnap, initialVelocity: Float = 0f) =
+            sheetHeightPx.animateTo(
+                anchorFor(snap),
+                spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.72f),
+                initialVelocity = initialVelocity,
+            )
+
+        fun nearestSnap(px: Float): SheetSnap =
+            SheetSnap.entries.minByOrNull { kotlin.math.abs(anchorFor(it) - px) } ?: SheetSnap.FULL
+
+        var sheetSnap by remember { mutableStateOf(defaultSnap) }
+        val listState = rememberLazyListState()
+
+        LaunchedEffect(fullPx) {
+            if (sheetHeightPx.value == 0f) sheetHeightPx.snapTo(anchorFor(defaultSnap))
+        }
+
+        val nestedScrollConnection = remember {
+            object : NestedScrollConnection {
+                override fun onPreScroll(available: Offset, source: NestedScrollSource): Offset {
+                    if (available.y > 0f && sheetHeightPx.value >= fullPx - 1f && !listState.canScrollBackward) {
+                        scope.launch {
+                            sheetHeightPx.snapTo((sheetHeightPx.value + available.y).coerceIn(handlePx, fullPx))
+                        }
+                        return available
+                    }
+                    return Offset.Zero
+                }
+
+                override suspend fun onPreFling(available: Velocity): Velocity {
+                    val threshold = 400f
+                    val cur = nearestSnap(sheetHeightPx.value)
+                    if (available.y > threshold && sheetHeightPx.value > handlePx + 1f && !listState.canScrollBackward) {
+                        val snap = when (cur) {
+                            SheetSnap.FULL    -> SheetSnap.PARTIAL
+                            SheetSnap.PARTIAL -> SheetSnap.HANDLE
+                            SheetSnap.HANDLE  -> SheetSnap.HANDLE
+                        }
+                        sheetSnap = snap; snapTo(snap, -available.y); return available
+                    }
+                    if (available.y < -threshold && sheetHeightPx.value < fullPx - 1f) {
+                        val snap = when (cur) {
+                            SheetSnap.HANDLE  -> SheetSnap.PARTIAL
+                            SheetSnap.PARTIAL -> SheetSnap.FULL
+                            SheetSnap.FULL    -> SheetSnap.FULL
+                        }
+                        sheetSnap = snap; snapTo(snap, -available.y); return available
+                    }
+                    return Velocity.Zero
+                }
+            }
+        }
+
+        val cornerDp = if (sheetHeightPx.value >= fullPx - 1f) 0.dp else 16.dp
+
+        Column(
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(with(density) { sheetHeightPx.value.toDp() })
+                .clip(RoundedCornerShape(topStart = cornerDp, topEnd = cornerDp))
+                .background(MaterialTheme.colorScheme.surface)
+                .pointerInput(Unit) {
+                    val velocityTracker = VelocityTracker()
+                    detectVerticalDragGestures(
+                        onDragStart = { velocityTracker.resetTracking() },
+                        onVerticalDrag = { change, delta ->
+                            velocityTracker.addPointerInputChange(change)
+                            scope.launch {
+                                sheetHeightPx.snapTo((sheetHeightPx.value - delta).coerceIn(handlePx, fullPx))
+                            }
+                        },
+                        onDragEnd = {
+                            val velocity = velocityTracker.calculateVelocity()
+                            val threshold = 400f
+                            val cur = nearestSnap(sheetHeightPx.value)
+                            val snap = when {
+                                velocity.y < -threshold -> when (cur) {
+                                    SheetSnap.HANDLE  -> SheetSnap.PARTIAL
+                                    SheetSnap.PARTIAL -> SheetSnap.FULL
+                                    SheetSnap.FULL    -> SheetSnap.FULL
+                                }
+                                velocity.y > threshold -> when (cur) {
+                                    SheetSnap.FULL    -> SheetSnap.PARTIAL
+                                    SheetSnap.PARTIAL -> SheetSnap.HANDLE
+                                    SheetSnap.HANDLE  -> SheetSnap.HANDLE
+                                }
+                                else -> cur
+                            }
+                            sheetSnap = snap
+                            scope.launch { snapTo(snap, -velocity.y) }
+                        },
+                    )
+                },
+        ) {
+            // Drag handle pill
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        val next = when (sheetSnap) {
+                            SheetSnap.FULL    -> SheetSnap.PARTIAL
+                            SheetSnap.PARTIAL -> SheetSnap.HANDLE
+                            SheetSnap.HANDLE  -> SheetSnap.FULL
+                        }
+                        sheetSnap = next
+                        scope.launch { snapTo(next) }
+                    }
+                    .padding(vertical = 10.dp),
+                horizontalArrangement = Arrangement.Center,
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(40.dp)
+                        .height(4.dp)
+                        .clip(RoundedCornerShape(2.dp))
+                        .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f))
+                )
+            }
+            if (sheetHeightPx.value > handlePx + with(density) { 8.dp.toPx() }) {
+                header()
+                Box(modifier = Modifier.weight(1f).nestedScroll(nestedScrollConnection)) {
+                    scrollableContent(listState)
+                }
+            }
+        }
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -373,7 +585,7 @@ private fun HomeScreen(
     suspend fun snapTo(snap: SheetSnap, initialVelocity: Float = 0f) =
         sheetHeightPx.animateTo(
             anchorFor(snap),
-            spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioMediumBouncy),
+            spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = 0.72f),
             initialVelocity = initialVelocity,
         )
 
@@ -879,6 +1091,7 @@ private fun DeviceMap(
     centerOnUserTrigger: Int,
     mapStyle: AppMapStyle,
     onOpenDevice: (String) -> Unit,
+    initialCameraTarget: LocationSnapshot? = null,
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -941,9 +1154,10 @@ private fun DeviceMap(
                     map.setStyle(mapStyle.url)
                     map.uiSettings.isRotateGesturesEnabled = true
                     map.uiSettings.isDoubleTapGesturesEnabled = true
-                    val startPos = userLocation
+                    val startPos = initialCameraTarget
+                        ?: userLocation
                         ?: devices.firstOrNull { it.lastLatitude != null }
-                            ?.let { LocationSnapshot(it.lastLatitude!!, it.lastLongitude!!, codegito.xyz.bluetoothseeker.data.model.LocationQuality.LAST_KNOWN) }
+                            ?.let { LocationSnapshot(it.lastLatitude!!, it.lastLongitude!!, LocationQuality.LAST_KNOWN) }
                     startPos?.let {
                         map.moveCamera(
                             CameraUpdateFactory.newCameraPosition(
@@ -984,118 +1198,185 @@ private fun DeviceDetailsScreen(
 ) {
     val context = LocalContext.current
     val device by appViewModel.device(address).collectAsState()
+    val settings by appViewModel.settings.collectAsState()
+    val userLocation by appViewModel.currentUserLocation().collectAsState()
+    val isDark = isSystemInDarkTheme()
+    val activeMapStyle = if (settings.mapStyleFollowsDark && isDark) settings.mapStyleDark else settings.mapStyle
+
+    // Stable filter flow so deviceEvents doesn't recreate on every recomposition
+    val filterFlow = remember { kotlinx.coroutines.flow.MutableStateFlow(HistoryFilter.ALL) }
     var filter by remember { mutableStateOf(HistoryFilter.ALL) }
-    val filterState = remember(filter) { kotlinx.coroutines.flow.MutableStateFlow(filter) }
-    val events by appViewModel.deviceEvents(address, filterState).collectAsState()
+    LaunchedEffect(filter) { filterFlow.value = filter }
+    val events by remember(address) { appViewModel.deviceEvents(address, filterFlow) }.collectAsState()
+
     var showIconPicker by remember { mutableStateOf(false) }
 
-    Scaffold(
-        topBar = {
-            CenterAlignedTopAppBar(
-                colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-                    containerColor = MaterialTheme.colorScheme.surface,
-                    titleContentColor = MaterialTheme.colorScheme.onSurface,
-                    navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
-                ),
-                title = { Text(device?.name ?: "Device") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) {
-                        Icon(Icons.Default.Bluetooth, contentDescription = "Back")
-                    }
-                },
+    // Build single-device list for map; hide old location when currently connected
+    val deviceForMap = remember(device) {
+        val dev = device ?: return@remember emptyList<DeviceSummary>()
+        if (dev.isConnected || dev.lastLatitude == null) emptyList()
+        else listOf(
+            DeviceSummary(
+                address = dev.address,
+                name = dev.name,
+                type = dev.deviceType,
+                isConnected = false,
+                lastSeenAt = dev.lastSeenAt,
+                lastLatitude = dev.lastLatitude,
+                lastLongitude = dev.lastLongitude,
+                lastPlaceLabel = dev.lastPlaceLabel,
+                lastLocationQuality = dev.lastLocationQuality,
+                distanceMeters = null,
+                isIgnored = false,
+                customIcon = dev.customIcon,
             )
-        },
-    ) { padding ->
-        LazyColumn(
-            modifier = Modifier.fillMaxSize().padding(padding).padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            item {
-                device?.let { dev ->
-                    DeviceHeaderCard(
-                        device = dev,
-                        onOpenMaps = { launchMap(context, dev) },
-                        onCopyCoordinates = { copyCoordinates(context, dev) },
-                        onShare = { shareLocation(context, dev) },
-                        onPickIcon = { showIconPicker = true },
-                    )
-                } ?: Text("Device not found.")
-            }
-            if (showIconPicker) {
-                item {
-                    IconPickerCard(
-                        currentIcon = device?.customIcon,
-                        onPick = { key ->
-                            device?.let { appViewModel.setCustomIcon(it.address, key) }
-                            showIconPicker = false
-                        },
-                        onDismiss = { showIconPicker = false },
-                    )
+        )
+    }
+
+    // Prefer to open camera on the device's last known location
+    val deviceCameraTarget = remember(device) {
+        val dev = device ?: return@remember null
+        if (!dev.isConnected && dev.lastLatitude != null)
+            LocationSnapshot(dev.lastLatitude, dev.lastLongitude!!, LocationQuality.LAST_KNOWN)
+        else null
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Background map: user location + device last location (if not currently connected)
+        DeviceMap(
+            devices = deviceForMap,
+            userLocation = userLocation,
+            centerOnUserTrigger = 0,
+            mapStyle = activeMapStyle,
+            onOpenDevice = {},
+            initialCameraTarget = deviceCameraTarget,
+        )
+
+        // Semi-transparent top bar overlay
+        CenterAlignedTopAppBar(
+            modifier = Modifier.align(Alignment.TopCenter),
+            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+                containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                titleContentColor = MaterialTheme.colorScheme.onSurface,
+                navigationIconContentColor = MaterialTheme.colorScheme.onSurface,
+            ),
+            title = { Text(device?.name ?: "Device") },
+            navigationIcon = {
+                IconButton(onClick = onBack) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back")
                 }
-            }
-            item {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .horizontalScroll(rememberScrollState()),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    HistoryFilter.entries.forEach { option ->
-                        FilterChip(
-                            selected = filter == option,
-                            onClick = { filter = option },
-                            label = { Text(option.name.lowercase().replace('_', ' ').replaceFirstChar { it.titlecase(Locale.getDefault()) }) },
-                        )
+            },
+        )
+
+        // Draggable bottom sheet: starts taller than the home sheet (60% of screen)
+        DraggableBottomSheet(
+            partialFraction = 0.60f,
+            defaultSnap = SheetSnap.PARTIAL,
+            header = {
+                // Status row: icon (tap to change) + status/location text
+                val dev = device
+                if (dev != null) {
+                    Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(12.dp),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant)
+                                    .clickable { showIconPicker = !showIconPicker },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    resolveIconFromKey(dev.customIcon),
+                                    contentDescription = "Change icon",
+                                    modifier = Modifier.size(28.dp),
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    if (dev.isConnected) "Currently connected" else Formatting.formatSeenAt(dev.lastSeenAt),
+                                    color = statusColor(dev.isConnected, dev.lastSeenAt),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    dev.lastPlaceLabel ?: formatCoordinates(dev.lastLatitude, dev.lastLongitude),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            // Quick actions
+                            IconButton(
+                                onClick = { launchMap(context, dev) },
+                                enabled = dev.lastLatitude != null && !dev.isConnected,
+                            ) {
+                                Icon(Icons.Default.Directions, contentDescription = "Open in maps")
+                            }
+                            IconButton(onClick = { shareLocation(context, dev) }) {
+                                Icon(Icons.Default.Share, contentDescription = "Share")
+                            }
+                        }
+                        if (showIconPicker) {
+                            Spacer(Modifier.height(8.dp))
+                            IconPickerCard(
+                                currentIcon = dev.customIcon,
+                                onPick = { key ->
+                                    appViewModel.setCustomIcon(dev.address, key)
+                                    showIconPicker = false
+                                },
+                                onDismiss = { showIconPicker = false },
+                            )
+                        }
+                        Spacer(Modifier.height(8.dp))
+                        // Filter chips row (non-scrollable, part of header)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            HistoryFilter.entries.forEach { option ->
+                                FilterChip(
+                                    selected = filter == option,
+                                    onClick = { filter = option },
+                                    label = {
+                                        Text(
+                                            option.name.lowercase().replace('_', ' ')
+                                                .replaceFirstChar { it.titlecase(Locale.getDefault()) }
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                        Spacer(Modifier.height(4.dp))
                     }
                 }
-            }
-            items(events, key = { it.id }) { event ->
-                EventRow(event = event)
-            }
-        }
-    }
-}
-
-@Composable
-private fun DeviceHeaderCard(
-    device: TrackedBluetoothDeviceEntity,
-    onOpenMaps: () -> Unit,
-    onCopyCoordinates: () -> Unit,
-    onShare: () -> Unit,
-    onPickIcon: () -> Unit,
-) {
-    Card(modifier = Modifier.fillMaxWidth()) {
-        Column(modifier = Modifier.fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Icon(
-                    resolveIconFromKey(device.customIcon),
-                    contentDescription = null,
-                    modifier = Modifier.size(32.dp),
-                )
-                Column {
-                    Text(if (device.isConnected) "Currently connected" else Formatting.formatSeenAt(device.lastSeenAt), color = statusColor(device.isConnected, device.lastSeenAt))
-                    Text(device.lastPlaceLabel ?: formatCoordinates(device.lastLatitude, device.lastLongitude))
+            },
+            scrollableContent = { listState ->
+                if (events.isEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize().padding(24.dp),
+                        contentAlignment = Alignment.TopCenter,
+                    ) {
+                        Text("No events recorded yet.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else {
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        contentPadding = androidx.compose.foundation.layout.PaddingValues(bottom = 24.dp),
+                    ) {
+                        items(events, key = { it.id }) { event ->
+                            EventRow(event = event)
+                        }
+                    }
                 }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onOpenMaps, enabled = device.lastLatitude != null && device.lastLongitude != null) {
-                    Icon(Icons.Default.Directions, contentDescription = null)
-                    Text("Open in maps")
-                }
-                Button(onClick = onCopyCoordinates) {
-                    Text("Copy coords")
-                }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onShare) {
-                    Icon(Icons.Default.Share, contentDescription = null)
-                    Text("Share")
-                }
-                Button(onClick = onPickIcon) {
-                    Text("Change icon")
-                }
-            }
-        }
+            },
+        )
     }
 }
 
