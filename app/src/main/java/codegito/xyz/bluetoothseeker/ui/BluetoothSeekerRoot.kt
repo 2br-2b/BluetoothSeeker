@@ -53,6 +53,7 @@ import androidx.compose.material.icons.filled.BluetoothDisabled
 import androidx.compose.material.icons.filled.Directions
 import androidx.compose.material.icons.filled.Headphones
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
@@ -136,6 +137,7 @@ import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView as MapLibreView
 import org.maplibre.android.maps.MapLibreMap
+import org.maplibre.android.annotations.IconFactory
 import org.maplibre.android.annotations.MarkerOptions
 import codegito.xyz.bluetoothseeker.data.model.MapStyle as AppMapStyle
 import codegito.xyz.bluetoothseeker.BuildConfig
@@ -408,7 +410,7 @@ private fun HomeScreen(
                         appViewModel.refresh()
                         centerOnUserLocation++
                     }) {
-                        Icon(Icons.Default.LocationOn, contentDescription = "Center on my location")
+                        Icon(Icons.Default.MyLocation, contentDescription = "Center on my location")
                     }
                     IconButton(onClick = onOpenMapTheme) {
                         Icon(Icons.Default.Palette, contentDescription = "Themes")
@@ -759,29 +761,106 @@ private fun DeviceRow(device: DeviceSummary, onClick: () -> Unit) {
     }
 }
 
+private fun createUserLocationBitmap(context: Context): android.graphics.Bitmap {
+    val density = context.resources.displayMetrics.density
+    val size = (28 * density).toInt().coerceAtLeast(1)
+    val bitmap = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bitmap)
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    val r = size / 2f
+    // White outer ring
+    paint.color = android.graphics.Color.WHITE
+    canvas.drawCircle(r, r, r, paint)
+    // Teal fill
+    paint.color = android.graphics.Color.parseColor("#00BCD4")
+    canvas.drawCircle(r, r, r * 0.72f, paint)
+    // White center dot
+    paint.color = android.graphics.Color.WHITE
+    canvas.drawCircle(r, r, r * 0.28f, paint)
+    return bitmap
+}
+
+private fun createDeviceMarkerBitmap(
+    context: Context,
+    deviceName: String,
+    customIconKey: String?,
+    deviceType: Int,
+): android.graphics.Bitmap {
+    val density = context.resources.displayMetrics.density
+    val circleSize = (34 * density).toInt().coerceAtLeast(1)
+    val tailHeight = (10 * density).toInt().coerceAtLeast(1)
+    val totalHeight = circleSize + tailHeight
+    val bitmap = android.graphics.Bitmap.createBitmap(circleSize, totalHeight, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bitmap)
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+    val r = circleSize / 2f
+    val fillColor = when {
+        customIconKey != null -> iconKeyToColor(customIconKey)
+        deviceType == android.bluetooth.BluetoothClass.Device.AUDIO_VIDEO_HEADPHONES -> android.graphics.Color.parseColor("#7B1FA2")
+        deviceType == android.bluetooth.BluetoothClass.Device.PHONE_SMART -> android.graphics.Color.parseColor("#1565C0")
+        deviceType == android.bluetooth.BluetoothClass.Device.AUDIO_VIDEO_LOUDSPEAKER -> android.graphics.Color.parseColor("#2E7D32")
+        else -> android.graphics.Color.parseColor("#37474F")
+    }
+    // White outline circle
+    paint.color = android.graphics.Color.WHITE
+    canvas.drawCircle(r, r, r, paint)
+    // Colored fill
+    paint.color = fillColor
+    canvas.drawCircle(r, r, r * 0.84f, paint)
+    // First letter of device name
+    paint.color = android.graphics.Color.WHITE
+    paint.textSize = r * 0.92f
+    paint.textAlign = android.graphics.Paint.Align.CENTER
+    val letter = deviceName.firstOrNull()?.uppercaseChar()?.toString() ?: "?"
+    val textY = r - (paint.descent() + paint.ascent()) / 2f
+    canvas.drawText(letter, r, textY, paint)
+    // Tail triangle pointing down
+    val path = android.graphics.Path()
+    path.moveTo(r - r * 0.38f, circleSize.toFloat())
+    path.lineTo(r + r * 0.38f, circleSize.toFloat())
+    path.lineTo(r, totalHeight.toFloat())
+    path.close()
+    paint.color = fillColor
+    canvas.drawPath(path, paint)
+    return bitmap
+}
+
+private fun iconKeyToColor(key: String): Int {
+    val hue = ((key.hashCode() and 0x7FFFFFFF) % 360).toFloat()
+    return android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.65f, 0.50f))
+}
+
 private fun addMarkersToMap(
     map: MapLibreMap,
     devices: List<DeviceSummary>,
     userLocation: LocationSnapshot?,
+    context: Context,
     onOpenDevice: (String) -> Unit,
 ) {
+    val iconFactory = IconFactory.getInstance(context)
     map.clear()
     userLocation?.let { loc ->
+        val userIcon = iconFactory.fromBitmap(createUserLocationBitmap(context))
         map.addMarker(
             MarkerOptions()
                 .position(LatLng(loc.latitude, loc.longitude))
                 .title("You are here")
+                .icon(userIcon)
         )
     }
     clusterDevices(devices).forEach { cluster ->
         val first = cluster.first()
         val lat = first.lastLatitude ?: return@forEach
         val lon = first.lastLongitude ?: return@forEach
+        val deviceIcon = iconFactory.fromBitmap(
+            createDeviceMarkerBitmap(context, first.name, first.customIcon, first.type)
+        )
         map.addMarker(
             MarkerOptions()
                 .position(LatLng(lat, lon))
                 .title(if (cluster.size == 1) first.name else "${cluster.size} devices nearby")
                 .snippet(first.lastPlaceLabel ?: formatCoordinates(first.lastLatitude, first.lastLongitude))
+                .icon(deviceIcon)
         )
     }
     map.setOnMarkerClickListener { marker ->
@@ -846,7 +925,7 @@ private fun DeviceMap(
     val mapReady = mapRef.value
     LaunchedEffect(devices, userLocation, mapReady) {
         val map = mapRef.value ?: return@LaunchedEffect
-        addMarkersToMap(map, devices, userLocation, onOpenDevice)
+        addMarkersToMap(map, devices, userLocation, context, onOpenDevice)
     }
 
     AndroidView(
@@ -882,7 +961,7 @@ private fun DeviceMap(
             mapRef.value?.let { map ->
                 if (map.style?.uri != mapStyle.url) {
                     map.setStyle(mapStyle.url) {
-                        addMarkersToMap(map, devices, userLocation, onOpenDevice)
+                        addMarkersToMap(map, devices, userLocation, context, onOpenDevice)
                     }
                 }
             }
