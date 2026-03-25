@@ -165,6 +165,7 @@ import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapView as MapLibreView
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.annotations.IconFactory
+import org.maplibre.android.annotations.Marker
 import org.maplibre.android.annotations.MarkerOptions
 import codegito.xyz.bluetoothseeker.data.model.LocationQuality
 import codegito.xyz.bluetoothseeker.data.model.MapStyle as AppMapStyle
@@ -1075,24 +1076,13 @@ private fun iconKeyToColor(key: String): Int {
     return android.graphics.Color.HSVToColor(floatArrayOf(hue, 0.65f, 0.50f))
 }
 
-private fun addMarkersToMap(
+private fun addDeviceMarkersToMap(
     map: MapLibreMap,
     devices: List<DeviceSummary>,
-    userLocation: LocationSnapshot?,
     context: Context,
     onOpenDevice: (String) -> Unit,
 ) {
     val iconFactory = IconFactory.getInstance(context)
-    map.clear()
-    userLocation?.let { loc ->
-        val userIcon = iconFactory.fromBitmap(createUserLocationBitmap(context))
-        map.addMarker(
-            MarkerOptions()
-                .position(LatLng(loc.latitude, loc.longitude))
-                .title("You are here")
-                .icon(userIcon)
-        )
-    }
     clusterDevices(devices).forEach { cluster ->
         val first = cluster.first()
         val lat = first.lastLatitude ?: return@forEach
@@ -1115,6 +1105,36 @@ private fun addMarkersToMap(
         if (device != null) onOpenDevice(device.address)
         true
     }
+}
+
+private fun updateUserLocationMarker(
+    map: MapLibreMap,
+    userLocation: LocationSnapshot?,
+    context: Context,
+    oldMarker: Marker?,
+): Marker? {
+    oldMarker?.let { map.removeMarker(it) }
+    return userLocation?.let { loc ->
+        val userIcon = IconFactory.getInstance(context).fromBitmap(createUserLocationBitmap(context))
+        map.addMarker(
+            MarkerOptions()
+                .position(LatLng(loc.latitude, loc.longitude))
+                .title("You are here")
+                .icon(userIcon)
+        )
+    }
+}
+
+private fun addMarkersToMap(
+    map: MapLibreMap,
+    devices: List<DeviceSummary>,
+    userLocation: LocationSnapshot?,
+    context: Context,
+    onOpenDevice: (String) -> Unit,
+) {
+    map.clear()
+    addDeviceMarkersToMap(map, devices, context, onOpenDevice)
+    updateUserLocationMarker(map, userLocation, context, null)
 }
 
 @Composable
@@ -1168,11 +1188,22 @@ private fun DeviceMap(
         )
     }
 
-    // Update markers whenever devices, location, or map readiness changes
+    val userMarkerRef = remember { mutableStateOf<Marker?>(null) }
+
+    // Full redraw only when the device list or map readiness changes
     val mapReady = mapRef.value
-    LaunchedEffect(devices, userLocation, mapReady) {
+    LaunchedEffect(devices, mapReady) {
         val map = mapRef.value ?: return@LaunchedEffect
-        addMarkersToMap(map, devices, userLocation, context, onOpenDevice)
+        map.clear()
+        userMarkerRef.value = null
+        addDeviceMarkersToMap(map, devices, context, onOpenDevice)
+        userMarkerRef.value = updateUserLocationMarker(map, userLocation, context, null)
+    }
+
+    // Update only the user location marker when it changes — no map.clear(), no flicker
+    LaunchedEffect(userLocation, mapReady) {
+        val map = mapRef.value ?: return@LaunchedEffect
+        userMarkerRef.value = updateUserLocationMarker(map, userLocation, context, userMarkerRef.value)
     }
 
     // Keep map padding in sync with the bottom sheet so the camera centres on the visible area.
@@ -1237,7 +1268,7 @@ private fun DeviceDetailsScreen(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
-    val device by appViewModel.device(address).collectAsState()
+    val device by remember(address) { appViewModel.device(address) }.collectAsState()
     val settings by appViewModel.settings.collectAsState()
     val userLocation by appViewModel.currentUserLocation().collectAsState()
     val isDark = isSystemInDarkTheme()
