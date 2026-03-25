@@ -1337,6 +1337,7 @@ private fun DeviceDetailsScreen(
                                     resolveIconFromKey(dev.customIcon),
                                     contentDescription = "Change icon",
                                     modifier = Modifier.size(28.dp),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
                             Column(modifier = Modifier.weight(1f)) {
@@ -1352,15 +1353,11 @@ private fun DeviceDetailsScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
                             }
-                            // Quick actions
                             IconButton(
                                 onClick = { launchMap(context, dev) },
-                                enabled = dev.lastLatitude != null && !dev.isConnected,
+                                enabled = dev.lastLatitude != null,
                             ) {
                                 Icon(Icons.Default.Directions, contentDescription = "Open in maps")
-                            }
-                            IconButton(onClick = { shareLocation(context, dev) }) {
-                                Icon(Icons.Default.Share, contentDescription = "Share")
                             }
                         }
                         if (showIconPicker) {
@@ -1400,7 +1397,11 @@ private fun DeviceDetailsScreen(
                 }
             },
             scrollableContent = { listState ->
-                if (events.isEmpty()) {
+                // Suppress content while the device row is still loading to avoid a flicker
+                // where "no events" appears before the header has populated.
+                if (device == null) {
+                    Box(Modifier.fillMaxSize())
+                } else if (events.isEmpty()) {
                     Box(
                         modifier = Modifier.fillMaxSize().padding(24.dp),
                         contentAlignment = Alignment.TopCenter,
