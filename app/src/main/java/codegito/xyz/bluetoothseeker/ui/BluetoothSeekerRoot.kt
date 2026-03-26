@@ -162,6 +162,7 @@ import org.maplibre.android.MapLibre
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
+import org.maplibre.android.geometry.LatLngBounds
 import org.maplibre.android.maps.MapView as MapLibreView
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.annotations.IconFactory
@@ -1225,19 +1226,29 @@ private fun DeviceMap(
                     map.uiSettings.isRotateGesturesEnabled = true
                     map.uiSettings.isDoubleTapGesturesEnabled = true
                     map.setPadding(0, 0, 0, bottomPaddingPx.toInt())
-                    val startPos = initialCameraTarget
-                        ?: userLocation
-                        ?: devices.firstOrNull { it.lastLatitude != null }
-                            ?.let { LocationSnapshot(it.lastLatitude!!, it.lastLongitude!!, LocationQuality.LAST_KNOWN) }
-                    startPos?.let {
-                        map.moveCamera(
-                            CameraUpdateFactory.newCameraPosition(
-                                CameraPosition.Builder()
-                                    .target(LatLng(it.latitude, it.longitude))
-                                    .zoom(13.0)
-                                    .build()
+                    val deviceLoc = initialCameraTarget
+                    val userLoc = userLocation
+                    if (deviceLoc != null && userLoc != null) {
+                        val bounds = LatLngBounds.Builder()
+                            .include(LatLng(deviceLoc.latitude, deviceLoc.longitude))
+                            .include(LatLng(userLoc.latitude, userLoc.longitude))
+                            .build()
+                        map.moveCamera(CameraUpdateFactory.newLatLngBounds(bounds, 150))
+                    } else {
+                        val startPos = deviceLoc
+                            ?: userLoc
+                            ?: devices.firstOrNull { it.lastLatitude != null }
+                                ?.let { LocationSnapshot(it.lastLatitude!!, it.lastLongitude!!, LocationQuality.LAST_KNOWN) }
+                        startPos?.let {
+                            map.moveCamera(
+                                CameraUpdateFactory.newCameraPosition(
+                                    CameraPosition.Builder()
+                                        .target(LatLng(it.latitude, it.longitude))
+                                        .zoom(13.0)
+                                        .build()
+                                )
                             )
-                        )
+                        }
                     }
                 }
             }
