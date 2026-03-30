@@ -1611,6 +1611,9 @@ private fun SettingsScreen(
                 SettingToggleRow("Disconnect notifications", settings.disconnectNotifications, appViewModel::updateDisconnectNotifications)
             }
             item {
+                SettingToggleRow("Connection toasts", settings.connectionToasts, appViewModel::updateConnectionToasts)
+            }
+            item {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()

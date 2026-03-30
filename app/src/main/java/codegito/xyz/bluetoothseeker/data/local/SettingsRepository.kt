@@ -21,6 +21,7 @@ data class UserSettings(
     val retentionDays: Int = 30,
     val amoledMode: Boolean = false,
     val disconnectNotifications: Boolean = false,
+    val connectionToasts: Boolean = false,
     val sortMode: SortMode = SortMode.MOST_RECENT,
     val ignoredAddresses: Set<String> = emptySet(),
     val mapStyle: MapStyle = MapStyle.LIBERTY,
@@ -39,6 +40,7 @@ class SettingsRepository(private val context: Context) {
         val mapStyle = stringPreferencesKey("map_style")
         val mapStyleDark = stringPreferencesKey("map_style_dark")
         val mapStyleFollowsDark = booleanPreferencesKey("map_style_follows_dark")
+        val connectionToasts = booleanPreferencesKey("connection_toasts")
     }
 
     val settings: Flow<UserSettings> = context.dataStore.data.map(::readSettings)
@@ -73,6 +75,7 @@ class SettingsRepository(private val context: Context) {
             retentionDays = prefs[Keys.retentionDays] ?: 30,
             amoledMode = prefs[Keys.amoledMode] ?: false,
             disconnectNotifications = prefs[Keys.disconnectNotifications] ?: false,
+            connectionToasts = prefs[Keys.connectionToasts] ?: false,
             sortMode = prefs[Keys.sortMode]?.let(SortMode::valueOf) ?: SortMode.MOST_RECENT,
             ignoredAddresses = prefs[Keys.ignoredAddresses]
                 ?.split("|")
@@ -92,6 +95,7 @@ class SettingsRepository(private val context: Context) {
         prefs[Keys.retentionDays] = settings.retentionDays
         prefs[Keys.amoledMode] = settings.amoledMode
         prefs[Keys.disconnectNotifications] = settings.disconnectNotifications
+        prefs[Keys.connectionToasts] = settings.connectionToasts
         prefs[Keys.sortMode] = settings.sortMode.name
         prefs[Keys.ignoredAddresses] = settings.ignoredAddresses.sorted().joinToString("|")
         prefs[Keys.mapStyle] = settings.mapStyle.name

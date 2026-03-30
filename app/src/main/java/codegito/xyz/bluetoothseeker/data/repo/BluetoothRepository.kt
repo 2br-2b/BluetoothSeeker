@@ -8,7 +8,10 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.location.Location
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
 import android.util.Log
+import android.widget.Toast
 import androidx.core.content.ContextCompat
 import codegito.xyz.bluetoothseeker.data.local.AppDatabase
 import codegito.xyz.bluetoothseeker.data.local.DeviceEventLogEntity
@@ -218,6 +221,15 @@ class BluetoothRepository(
         pruneOldLogs(settings.retentionDays)
         if (eventType == DeviceEventType.DISCONNECTED && settings.disconnectNotifications) {
             notificationManager.showDisconnectNotification(device.displayName())
+        }
+        if (settings.connectionToasts) {
+            val message = when (eventType) {
+                DeviceEventType.CONNECTED -> "${device.displayName()} connected! Logging location."
+                DeviceEventType.DISCONNECTED -> "${device.displayName()} disconnected! Logging location."
+            }
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+            }
         }
     }
 

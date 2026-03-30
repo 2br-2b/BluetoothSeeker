@@ -150,6 +150,12 @@ class AppViewModel(
         }
     }
 
+    fun updateConnectionToasts(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.updateSettings { it.copy(connectionToasts = enabled) }
+        }
+    }
+
     fun exportData(context: Context, uri: android.net.Uri) {
         viewModelScope.launch {
             context.contentResolver.openOutputStream(uri)?.use { outputStream ->
