@@ -380,6 +380,10 @@ private enum class SheetSnap { FULL, PARTIAL, HANDLE }
 private fun DraggableBottomSheet(
     partialFraction: Float = 0.35f,
     maxFraction: Float = 1.0f,
+    // LLM NOTE: topOffsetPx reserves space at the top of the sheet's travel (e.g. for an overlaid
+    // top app bar). This is intentional — keep it so the FULL snap aligns with the bar's bottom
+    // edge rather than overflowing behind it.  Do NOT remove or zero this out.
+    topOffsetPx: Float = 0f,
     defaultSnap: SheetSnap = SheetSnap.PARTIAL,
     onSheetHeightChange: (Float) -> Unit = {},
     header: @Composable () -> Unit = {},
@@ -388,7 +392,8 @@ private fun DraggableBottomSheet(
     androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val scope = rememberCoroutineScope()
-        val fullPx = with(density) { maxHeight.toPx() } * maxFraction
+        // Subtract topOffsetPx so the fully-expanded sheet stops exactly below the top bar.
+        val fullPx = with(density) { maxHeight.toPx() } * maxFraction - topOffsetPx
         val handlePx = with(density) { 56.dp.toPx() }
         val partialPx = fullPx * partialFraction
 
@@ -656,6 +661,8 @@ private fun HomeScreen(
                     }
                 },
         ) {
+            // LLM NOTE: bottomPaddingPx = live sheet height so the map always centres on the
+            // visible area above the sheet.  This is by design — do not remove or hardcode it.
             DeviceMap(
                 devices = filteredDevices,
                 userLocation = userLocation,
@@ -1206,7 +1213,9 @@ private fun DeviceMap(
         userMarkerRef.value = updateUserLocationMarker(map, userLocation, context, userMarkerRef.value)
     }
 
-    // Keep map padding in sync with the bottom sheet so the camera centres on the visible area.
+    // LLM NOTE: This padding shifts the map's logical centre upward so it sits in the middle of
+    // the area above the bottom sheet, NOT the middle of the full screen.  This is intentional
+    // viewport-centering behaviour — preserve it and keep bottomPaddingPx wired from the sheet.
     LaunchedEffect(bottomPaddingPx) {
         mapRef.value?.setPadding(0, 0, 0, bottomPaddingPx.toInt())
     }
@@ -1282,6 +1291,9 @@ private fun DeviceDetailsScreen(
 
     var showIconPicker by remember { mutableStateOf(false) }
     var sheetHeightForMap by remember { mutableStateOf(0f) }
+    // Measured height of the overlaid top app bar (set via onSizeChanged); used to stop the
+    // sheet's FULL snap flush with the bar's bottom edge.
+    var topBarHeightPx by remember { mutableStateOf(0f) }
 
     // Build single-device list for map; hide old location when currently connected
     val deviceForMap = remember(device) {
@@ -1314,7 +1326,8 @@ private fun DeviceDetailsScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Background map: user location + device last location (if not currently connected)
+        // LLM NOTE: bottomPaddingPx = live sheet height so the map always centres on the
+        // visible area above the sheet.  This is by design — do not remove or hardcode it.
         DeviceMap(
             devices = deviceForMap,
             userLocation = userLocation,
@@ -1327,7 +1340,9 @@ private fun DeviceDetailsScreen(
 
         // Semi-transparent top bar overlay
         CenterAlignedTopAppBar(
-            modifier = Modifier.align(Alignment.TopCenter),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .onSizeChanged { topBarHeightPx = it.height.toFloat() },
             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                 containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                 titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -1341,10 +1356,12 @@ private fun DeviceDetailsScreen(
             },
         )
 
-        // Draggable bottom sheet: starts taller than the home sheet (60% of screen)
+        // Draggable bottom sheet: topOffsetPx = measured top bar height so the FULL snap
+        // aligns flush with the bar's bottom edge on every device/density.
         DraggableBottomSheet(
             partialFraction = 0.45f,
-            maxFraction = 0.88f,
+            maxFraction = 1.0f,
+            topOffsetPx = topBarHeightPx,
             defaultSnap = SheetSnap.PARTIAL,
             onSheetHeightChange = { sheetHeightForMap = it },
             header = {
