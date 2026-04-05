@@ -1180,7 +1180,8 @@ private fun DeviceMap(
         }
     }
 
-    // Animate to user location when button tapped
+    // Animate to user location when button tapped; include current sheet padding so the
+    // target lands in the centre of the visible area above the sheet, not the screen centre.
     LaunchedEffect(centerOnUserTrigger) {
         if (centerOnUserTrigger == 0) return@LaunchedEffect
         val loc = userLocation ?: return@LaunchedEffect
@@ -1189,6 +1190,7 @@ private fun DeviceMap(
                 CameraPosition.Builder()
                     .target(LatLng(loc.latitude, loc.longitude))
                     .zoom(15.0)
+                    .padding(doubleArrayOf(0.0, 0.0, 0.0, bottomPaddingPx.toDouble()))
                     .build()
             ),
             800,
@@ -1213,11 +1215,26 @@ private fun DeviceMap(
         userMarkerRef.value = updateUserLocationMarker(map, userLocation, context, userMarkerRef.value)
     }
 
-    // LLM NOTE: This padding shifts the map's logical centre upward so it sits in the middle of
-    // the area above the bottom sheet, NOT the middle of the full screen.  This is intentional
-    // viewport-centering behaviour — preserve it and keep bottomPaddingPx wired from the sheet.
-    LaunchedEffect(bottomPaddingPx) {
-        mapRef.value?.setPadding(0, 0, 0, bottomPaddingPx.toInt())
+    // LLM NOTE: map.setPadding() only moves UI overlays (compass/attribution) — it does NOT
+    // move the camera.  We must move the camera with CameraPosition.padding so the target
+    // appears in the centre of the visible area ABOVE the sheet, not the screen centre.
+    // This is intentional viewport-centering behaviour — do NOT revert to setPadding().
+    // Keyed on both bottomPaddingPx (sheet drag) and mapRef.value (map becoming ready).
+    LaunchedEffect(bottomPaddingPx, mapRef.value) {
+        val map = mapRef.value ?: return@LaunchedEffect
+        val cur = map.cameraPosition
+        val target = cur.target ?: return@LaunchedEffect   // no position set yet; initial moveCamera will handle it
+        map.moveCamera(
+            CameraUpdateFactory.newCameraPosition(
+                CameraPosition.Builder()
+                    .target(target)
+                    .zoom(cur.zoom)
+                    .bearing(cur.bearing)
+                    .tilt(cur.tilt)
+                    .padding(doubleArrayOf(0.0, 0.0, 0.0, bottomPaddingPx.toDouble()))
+                    .build()
+            )
+        )
     }
 
     AndroidView(
@@ -1233,17 +1250,19 @@ private fun DeviceMap(
                     map.setStyle(mapStyle.url)
                     map.uiSettings.isRotateGesturesEnabled = true
                     map.uiSettings.isDoubleTapGesturesEnabled = true
-                    map.setPadding(0, 0, 0, bottomPaddingPx.toInt())
                     val startPos = initialCameraTarget
                         ?: userLocation
                         ?: devices.firstOrNull { it.lastLatitude != null }
                             ?.let { LocationSnapshot(it.lastLatitude!!, it.lastLongitude!!, LocationQuality.LAST_KNOWN) }
                     startPos?.let {
+                        // Use CameraPosition.padding (not map.setPadding) so the target appears
+                        // in the centre of the visible area above the sheet from the first frame.
                         map.moveCamera(
                             CameraUpdateFactory.newCameraPosition(
                                 CameraPosition.Builder()
                                     .target(LatLng(it.latitude, it.longitude))
                                     .zoom(13.0)
+                                    .padding(doubleArrayOf(0.0, 0.0, 0.0, bottomPaddingPx.toDouble()))
                                     .build()
                             )
                         )
