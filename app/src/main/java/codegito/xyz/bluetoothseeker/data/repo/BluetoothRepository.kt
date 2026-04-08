@@ -137,6 +137,7 @@ class BluetoothRepository(
                     lastLongitude = existing?.lastLongitude,
                     lastPlaceLabel = existing?.lastPlaceLabel,
                     lastLocationQuality = existing?.lastLocationQuality,
+                    customIcon = existing?.customIcon,
                 ),
             )
         }
@@ -199,6 +200,7 @@ class BluetoothRepository(
                 lastLongitude = location?.longitude ?: existing?.lastLongitude,
                 lastPlaceLabel = placeLabel ?: existing?.lastPlaceLabel,
                 lastLocationQuality = location?.quality ?: existing?.lastLocationQuality,
+                customIcon = existing?.customIcon,
             ),
         )
         dao.insertEvent(
