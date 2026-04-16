@@ -380,6 +380,10 @@ private enum class SheetSnap { FULL, PARTIAL, HANDLE }
 private fun DraggableBottomSheet(
     partialFraction: Float = 0.35f,
     maxFraction: Float = 1.0f,
+    // LLM NOTE: topOffsetPx reserves space at the top of the sheet's travel (e.g. for an overlaid
+    // top app bar). This is intentional — keep it so the FULL snap aligns with the bar's bottom
+    // edge rather than overflowing behind it.  Do NOT remove or zero this out.
+    topOffsetPx: Float = 0f,
     defaultSnap: SheetSnap = SheetSnap.PARTIAL,
     onSheetHeightChange: (Float) -> Unit = {},
     header: @Composable () -> Unit = {},
@@ -388,7 +392,8 @@ private fun DraggableBottomSheet(
     androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
         val density = LocalDensity.current
         val scope = rememberCoroutineScope()
-        val fullPx = with(density) { maxHeight.toPx() } * maxFraction
+        // Subtract topOffsetPx so the fully-expanded sheet stops exactly below the top bar.
+        val fullPx = with(density) { maxHeight.toPx() } * maxFraction - topOffsetPx
         val handlePx = with(density) { 56.dp.toPx() }
         val partialPx = fullPx * partialFraction
 
@@ -656,6 +661,8 @@ private fun HomeScreen(
                     }
                 },
         ) {
+            // LLM NOTE: bottomPaddingPx = live sheet height so the map always centres on the
+            // visible area above the sheet.  This is by design — do not remove or hardcode it.
             DeviceMap(
                 devices = filteredDevices,
                 userLocation = userLocation,
@@ -1173,7 +1180,8 @@ private fun DeviceMap(
         }
     }
 
-    // Animate to user location when button tapped
+    // Animate to user location when button tapped; include current sheet padding so the
+    // target lands in the centre of the visible area above the sheet, not the screen centre.
     LaunchedEffect(centerOnUserTrigger) {
         if (centerOnUserTrigger == 0) return@LaunchedEffect
         val loc = userLocation ?: return@LaunchedEffect
@@ -1182,6 +1190,7 @@ private fun DeviceMap(
                 CameraPosition.Builder()
                     .target(LatLng(loc.latitude, loc.longitude))
                     .zoom(15.0)
+                    .padding(doubleArrayOf(0.0, 0.0, 0.0, bottomPaddingPx.toDouble()))
                     .build()
             ),
             800,
@@ -1206,9 +1215,26 @@ private fun DeviceMap(
         userMarkerRef.value = updateUserLocationMarker(map, userLocation, context, userMarkerRef.value)
     }
 
-    // Keep map padding in sync with the bottom sheet so the camera centres on the visible area.
-    LaunchedEffect(bottomPaddingPx) {
-        mapRef.value?.setPadding(0, 0, 0, bottomPaddingPx.toInt())
+    // LLM NOTE: map.setPadding() only moves UI overlays (compass/attribution) — it does NOT
+    // move the camera.  We must move the camera with CameraPosition.padding so the target
+    // appears in the centre of the visible area ABOVE the sheet, not the screen centre.
+    // This is intentional viewport-centering behaviour — do NOT revert to setPadding().
+    // Keyed on both bottomPaddingPx (sheet drag) and mapRef.value (map becoming ready).
+    LaunchedEffect(bottomPaddingPx, mapRef.value) {
+        val map = mapRef.value ?: return@LaunchedEffect
+        val cur = map.cameraPosition
+        val target = cur.target ?: return@LaunchedEffect   // no position set yet; initial moveCamera will handle it
+        map.moveCamera(
+            CameraUpdateFactory.newCameraPosition(
+                CameraPosition.Builder()
+                    .target(target)
+                    .zoom(cur.zoom)
+                    .bearing(cur.bearing)
+                    .tilt(cur.tilt)
+                    .padding(doubleArrayOf(0.0, 0.0, 0.0, bottomPaddingPx.toDouble()))
+                    .build()
+            )
+        )
     }
 
     AndroidView(
@@ -1224,17 +1250,19 @@ private fun DeviceMap(
                     map.setStyle(mapStyle.url)
                     map.uiSettings.isRotateGesturesEnabled = true
                     map.uiSettings.isDoubleTapGesturesEnabled = true
-                    map.setPadding(0, 0, 0, bottomPaddingPx.toInt())
                     val startPos = initialCameraTarget
                         ?: userLocation
                         ?: devices.firstOrNull { it.lastLatitude != null }
                             ?.let { LocationSnapshot(it.lastLatitude!!, it.lastLongitude!!, LocationQuality.LAST_KNOWN) }
                     startPos?.let {
+                        // Use CameraPosition.padding (not map.setPadding) so the target appears
+                        // in the centre of the visible area above the sheet from the first frame.
                         map.moveCamera(
                             CameraUpdateFactory.newCameraPosition(
                                 CameraPosition.Builder()
                                     .target(LatLng(it.latitude, it.longitude))
                                     .zoom(13.0)
+                                    .padding(doubleArrayOf(0.0, 0.0, 0.0, bottomPaddingPx.toDouble()))
                                     .build()
                             )
                         )
@@ -1282,6 +1310,9 @@ private fun DeviceDetailsScreen(
 
     var showIconPicker by remember { mutableStateOf(false) }
     var sheetHeightForMap by remember { mutableStateOf(0f) }
+    // Measured height of the overlaid top app bar (set via onSizeChanged); used to stop the
+    // sheet's FULL snap flush with the bar's bottom edge.
+    var topBarHeightPx by remember { mutableStateOf(0f) }
 
     // Build single-device list for map; hide old location when currently connected
     val deviceForMap = remember(device) {
@@ -1314,7 +1345,8 @@ private fun DeviceDetailsScreen(
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
-        // Background map: user location + device last location (if not currently connected)
+        // LLM NOTE: bottomPaddingPx = live sheet height so the map always centres on the
+        // visible area above the sheet.  This is by design — do not remove or hardcode it.
         DeviceMap(
             devices = deviceForMap,
             userLocation = userLocation,
@@ -1327,7 +1359,9 @@ private fun DeviceDetailsScreen(
 
         // Semi-transparent top bar overlay
         CenterAlignedTopAppBar(
-            modifier = Modifier.align(Alignment.TopCenter),
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .onSizeChanged { topBarHeightPx = it.height.toFloat() },
             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
                 containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                 titleContentColor = MaterialTheme.colorScheme.onSurface,
@@ -1341,10 +1375,12 @@ private fun DeviceDetailsScreen(
             },
         )
 
-        // Draggable bottom sheet: starts taller than the home sheet (60% of screen)
+        // Draggable bottom sheet: topOffsetPx = measured top bar height so the FULL snap
+        // aligns flush with the bar's bottom edge on every device/density.
         DraggableBottomSheet(
             partialFraction = 0.45f,
-            maxFraction = 0.88f,
+            maxFraction = 1.0f,
+            topOffsetPx = topBarHeightPx,
             defaultSnap = SheetSnap.PARTIAL,
             onSheetHeightChange = { sheetHeightForMap = it },
             header = {
