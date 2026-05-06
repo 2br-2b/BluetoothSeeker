@@ -26,11 +26,18 @@ jobs:
       - name: Grant execute permission
         run: chmod +x gradlew
 
-      - name: Build unsigned release
+      - name: Decode Keystore
+        run: echo "${{ secrets.ANDROID_KEYSTORE }}" | base64 --decode > app/release.jks
+
+      - name: Build release APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: ./gradlew assembleRelease
 
       - name: Upload release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: bluetoothseeker-release-unsigned
+          name: bluetoothseeker-release-${{ github.run_number }}
           path: app/build/outputs/apk/release/*.apk
